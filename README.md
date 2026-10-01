@@ -16,6 +16,10 @@ codebase, and it records what was needed to trust their work.
   on one case caught 0 of 7 real cases. After the fix, it caught 7 of 7.
 - **A checker.** `scripts/check_report.py` extracts every `$ command` block from a report, flags
   signs of hand editing, and with `--run` re-runs each command and diffs the output.
+- **Traceability.** Dev sessions are strictly one-shot (one task each), and each report ends with a
+  short logbook. `scripts/trace/tracer.py` measures every task from the agent runtime's own
+  records: time, steps, test runs, re-reads, failures, and cost. It keeps them in a SQLite
+  database with views, so you can see which tasks, tickets, and agents eat the time.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, and a closing plan.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
@@ -45,16 +49,26 @@ python3 scripts/check_report.py reports/T-07.md --run --cwd repo \
 ```
 
 `--run` executes commands that somebody else wrote. Read the listing first, and use `--only` to
-run a subset. The script uses only the standard library. Tests:
-`python3 -m unittest discover -s scripts/tests`.
+run a subset. Both tools use only the Python standard library. Tests:
+`python3 -m unittest discover -s scripts/tests` and `python3 -m unittest discover -s scripts/trace/tests`.
+
+## Trace agent sessions
+
+```bash
+T=scripts/trace/tracer.py; D=~/agent-traces/data     # keep the data in a PRIVATE repo
+python3 $T --data $D ingest --project myproj --since 2026-10-01     # reads opencode's store, read-only
+python3 $T --data $D event verdict --project myproj --ticket T-7 --round 0 --verdict returned --cause evidence
+python3 $T --data $D build
+python3 $T --data $D report --view v_outliers       # also v_ticket, v_agent, v_day, v_one_shot, v_return_cause
+```
 
 ## Layout
 
 ```
-SKILL.md          the skill: roles, lifecycle, the seven rules, DoD, metrics
+SKILL.md          the skill: roles, lifecycle, the nine rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
 templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN
-scripts/          check_report.py + tests
+scripts/          check_report.py, trace/ (tracer.py, schema.sql, sources/), tests
 adapters/         opencode, Hermes kanban
 ```
 

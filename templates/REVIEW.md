@@ -8,6 +8,8 @@
   `<file>` at `<time>`.
 - The PM's own suite run: `<command>` → `<result>`.
 - Nothing outside the lane changed (hashes and mtimes).
+- Trace: the session was one-shot (`prompts=1`), and its logbook agrees with the trace
+  (`tracer.py report --view v_outliers`). The verdict was recorded with `tracer.py event verdict`.
 
 ## Returned (if any)
 

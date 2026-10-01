@@ -23,7 +23,10 @@ prompt points to, the dev does not know it.
 6. **Say where to stop.** Give the ticket part and the STOP point. Say what to do if a gate change
    seems necessary: stop and report.
 7. **Say how to report.** Give the report path, the row to update on the board, and the state to
-   set.
+   set. Ask for the logbook (`traceability.md`).
+8. **Say that the session is one-shot.** One task, then stop. Any other request in that session
+   gets the answer «new session». Don't send follow-up questions to a session that has already
+   reported. Put them in the next task's prompt.
 
 Template: `templates/PROMPT.md`.
 

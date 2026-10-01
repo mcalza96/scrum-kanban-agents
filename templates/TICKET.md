@@ -52,4 +52,8 @@ In `reports/<ID>.md`:
 - the answer to T3;
 - the suites, with their command.
 
-Set the `STATUS.md` row to `reported`, with the time from `date`.
+Then add, as its last section, `## Logbook`: at most 10 lines, **no times**. Cover the phases you
+followed, what you repeated and why, where you got stuck, and what would have saved time.
+
+Set the `STATUS.md` row to `reported`, with the time from `date`, and **end the session**: one task
+per session.

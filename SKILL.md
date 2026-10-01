@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.2.0
+version: 0.3.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -31,7 +31,7 @@ human decision at every step.
 |---|---|---|---|
 | Stakeholder | The human | Prioritizes, decides, accepts | Edit the board rows of others |
 | PM | One agent session (or the human) | Writes tickets, verifies reports, closes or returns | Implement what it reviews |
-| Dev | A fresh agent session per ticket | Implements, runs tests, writes the report | Decide scope, close its own ticket |
+| Dev | A fresh agent session for **one** task (one-shot) | Implements, runs tests, writes the report and its logbook | Take a second task, decide scope, close its own ticket |
 | Gate | Tests, scripts, hidden evaluation sets | Mechanical verdict | Get changed by the dev it judges |
 
 A PM that edits the artifact under review is reviewing its own work. The human decides; the PM
@@ -59,8 +59,10 @@ pending → in progress → reported → closed
 - Each dev edits only its own row on the board.
 - A return goes to a **new dev session**, with a self-contained prompt that lists only what must be
   fixed (`references/prompts.md`).
+- **One session, one task.** A session ends when its task's report is written. The next task,
+  even for the same agent, starts a new session (rule 8).
 
-## The seven rules
+## The nine rules
 
 1. **Evidence is literal.** Every claim in a report comes with the exact `$ command` and its
    output, pasted as is: no `...`, no hand-written diffs, no hand-written `ls -l`, no estimated
@@ -86,6 +88,22 @@ pending → in progress → reported → closed
    - no new ticket unless it comes from a failure seen in those steps.
 
    Read `references/closing.md`.
+8. **One-shot devs, strictly.** Each dev session receives exactly one task: one ticket part or
+   one return. It writes the report, sets its row to `reported`, and stops. It does not accept a
+   second task, a follow-up question, or a «while you're at it».
+   - Questions for the dev go into the next task's prompt, in a new session.
+   - The PM checks this in the trace: a session with more than one prompt is a process failure,
+     and it is recorded.
+   - Why: in the project this skill comes from, 7 of 18 sessions on one day took several tasks. The
+     longest one took 7 prompts and ran for 3.5 hours with 58 test runs. A prompt meant for one
+     agent landed in another agent's session. Old context made later tasks slower and harder to
+     verify.
+9. **Every task is traced.** The dev ends its report with a **logbook** of at most 10 lines,
+   without times: the phases it followed, what it repeated and why, where it got stuck, and what
+   would have saved time. The PM gets the numbers from the agent runtime's own records, never from
+   the agent: duration, steps, test runs, re-reads, failures, tokens, and cost. The PM keeps them in
+   a trace database with each verdict. Time informs the PM. It is never a target for the devs. Read
+   `references/traceability.md`.
 
 ## Definition of Done
 
@@ -99,6 +117,8 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
 6. The report is a pointer plus a short summary. The payload stays in the repo.
 7. A verifier other than the dev approved the work. If the criterion is fully mechanical, a
    deterministic gate can replace the verifier.
+8. The report ends with the logbook, the session was one-shot, and the PM ingested its trace and
+   recorded the verdict.
 
 A `completed` status without an artifact is a **delivery failure**, not a success.
 
@@ -110,7 +130,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | Planning | Tickets, with lanes (`references/file-mode.md`) and dependencies | Start of a phase |
 | Daily | Board plus the dev's heartbeat or session log | When reporting to the human |
 | Review | PM verification and verdict | Each report |
-| Retro | One concrete rule added to or removed from the process | End of a phase |
+| Retro | Read the trace views (`v_outliers`, `v_return_cause`, `v_one_shot`) and add or remove one concrete rule | End of a phase |
 
 ## Metrics
 
@@ -121,6 +141,9 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 
   Mostly evidence means fix the report format, not the dev. Mostly scope means fix the tickets.
 - **Timeout waste**: runs killed by a time limit. It is the most expensive way to fail.
+- **One-shot rate**: sessions with exactly one prompt, out of all dev sessions. The target is 100%.
+- **Cost of returns**: minutes spent on returns compared with minutes spent on the original work,
+  per ticket (`v_ticket`). A return that costs more than the work points at the report format.
 - **Gate drift**: for each gate, its precision and recall on the hidden set, recorded with the
   code hash. Every gate decision is compared against that baseline.
 
@@ -135,7 +158,9 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/prompts.md` | Prompts for dev sessions and for returns |
 | `references/test-speed.md` | Fast suites and single-run output |
 | `references/closing.md` | Closing plan for an epic that keeps growing |
+| `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
+| `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
 | `adapters/` | Tool-specific notes and helpers: `opencode.md`, `hermes-kanban/` |

@@ -24,6 +24,7 @@ In this mode the board is a markdown table that every agent can read and edit.
 - States are `pending → in progress → reported → (returned → in progress →) closed`.
 - Only the PM writes `closed`, `closed (with notes)`, `returned`, or `deferred`.
 - The `updated` time comes from `date`, never from memory.
+- One row change to `in progress` corresponds to one dev session. A session never moves two rows.
 - Deferred tickets stay visible in the table, marked `deferred (<why>)`, so nobody picks them up.
 
 ## Lanes

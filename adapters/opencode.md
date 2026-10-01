@@ -40,6 +40,11 @@ With these you can check three things:
 
 The schema may change between versions. Check it with `.schema part` before you rely on it.
 
+## Tracing
+
+`scripts/trace/tracer.py ingest --source opencode` reads the same tables, read-only, and builds the
+trace described in `references/traceability.md`.
+
 ## Pitfalls
 
 - **A rate-limited model makes opencode wait instead of fail.** No stdout, no stderr, and the
