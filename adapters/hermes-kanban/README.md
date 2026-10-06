@@ -33,6 +33,11 @@ hermes kanban ls && hermes kanban stats
   criteria go in `--body`.
 - **The default `--workspace` is `scratch`.** `set-default-workdir` does not change it, so pass
   `--workspace dir:<repo>` on every create.
+- **Delegated children cannot mutate the board.** A `delegate_task` child context
+  cannot `create`/`comment`/`block`/`complete` via the CLI (guarded). Children
+  return `{pointer, summary}` and stop; only the parent comments, moves, and
+  closes cards. See `references/parent-focus.md` (one writer, PM keeps its own
+  short todo, cap open tickets per workstream).
 - **Workers in dispatch context have a safe-write root.** They cannot write to `/tmp`, and they
   cannot run heredocs or `python3 -c`. Check board state with read-only `sqlite3` on
   `$HERMES_KANBAN_DB`.
