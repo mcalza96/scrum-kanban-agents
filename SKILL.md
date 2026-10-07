@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.3.0
+version: 0.4.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -128,6 +128,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 |---|---|---|
 | Refinement | Split tickets into parts with `STOP` points where the human must decide | Before starting |
 | Planning | Tickets, with lanes (`references/file-mode.md`) and dependencies | Start of a phase |
+| Plan attack | Four blind attackers (figures, feasibility, logic and gates, scope) attack the plan; the PM re-verifies each finding, writes v2, and runs a second round if the design changed (`references/plan-attack.md`) | After planning, before any card is assigned, **only for complex work** |
 | Daily | Board plus the dev's heartbeat or session log | When reporting to the human |
 | Review | PM verification and verdict | Each report |
 | Retro | Read the trace views (`v_outliers`, `v_return_cause`, `v_one_shot`) and add or remove one concrete rule | End of a phase |
@@ -160,6 +161,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/closing.md` | Closing plan for an epic that keeps growing |
 | `references/parent-focus.md` | The PM's own todo, ticket cap, children never mutate the board |
 | `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
+| `references/plan-attack.md` | Blind adversarial review of a complex plan before execution |
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
