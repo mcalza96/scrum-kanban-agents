@@ -78,3 +78,11 @@ command, and an output. «It was slow» is not a lesson.
   until a timeout kills it. When tasks always die at the same elapsed time, read the agent runtime's
   own log.
 - **A model listed by the API is not proof that it works.** Make one real call before wiring it in.
+
+## Planning
+
+- **Attack the plan, not only the cards.** A knowledge-ingestion plan passed the author's own
+  review. Four blind attackers then found two critical design defects in about three minutes:
+  no card produced the stated goal, and several gates could not fail. They also found eight
+  misquoted measurements. The author's fixes were not attacked again, and a later scope cut was
+  not attacked either. That is why a second round exists (`plan-attack.md`).

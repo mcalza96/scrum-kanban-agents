@@ -20,6 +20,10 @@ codebase, and it records what was needed to trust their work.
   short logbook. `scripts/trace/tracer.py` measures every task from the agent runtime's own
   records: time, steps, test runs, re-reads, failures, and cost. It keeps them in a SQLite
   database with views, so you can see which tasks, tickets, and agents eat the time.
+- **Plan attack, for complex work only.** Before any card is assigned, four blind attackers attack
+  the plan: figures, feasibility, logic and gates, and scope. The PM re-verifies each finding and
+  attacks its own fixes in a second round. In the field, this found gates that could not fail and a
+  goal that no card delivered, in about three minutes.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, and a closing plan.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
