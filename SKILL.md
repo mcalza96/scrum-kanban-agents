@@ -158,6 +158,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/prompts.md` | Prompts for dev sessions and for returns |
 | `references/test-speed.md` | Fast suites and single-run output |
 | `references/closing.md` | Closing plan for an epic that keeps growing |
+| `references/parent-focus.md` | The PM's own todo, ticket cap, children never mutate the board |
 | `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md` |
