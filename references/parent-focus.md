@@ -15,6 +15,9 @@ over-long dev session (rule 8), one level up.
   the summary). The pointer is the card or file; the summary is all the PM
   carries forward.
 
+The todo is what the PM does next; `FOCUS.md` is what the work is for. The todo changes every
+turn, the objective only when the human says so (`focus-log.md`).
+
 ## Cap the open tickets
 
 Every open ticket costs the PM context on every turn. When tickets appear

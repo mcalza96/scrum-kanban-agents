@@ -9,6 +9,7 @@ In this mode the board is a markdown table that every agent can read and edit.
 <epic>/
   EPIC.md            # goal, lanes, rules that never break, suite commands, DoD
   STATUS.md          # the board (template in templates/STATUS.md)
+  FOCUS.md           # objective, directives in force, PM turn log (references/focus-log.md)
   PROMPT-AGENT.md    # shared rules every dev prompt points to
   CLOSING-PLAN.md    # only once the epic needs one (references/closing.md)
   <TICKET-ID>.md     # one file per ticket (templates/TICKET.md)

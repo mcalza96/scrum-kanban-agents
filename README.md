@@ -24,7 +24,10 @@ codebase, and it records what was needed to trust their work.
   the plan: figures, feasibility, logic and gates, and scope. The PM re-verifies each finding and
   attacks its own fixes in a second round. In the field, this found gates that could not fail and a
   goal that no card delivered, in about three minutes.
-- **Templates.** `STATUS.md`, tickets, reviews, prompts, and a closing plan.
+- **A focus log that survives compaction.** The PM keeps `FOCUS.md`: the objective in the human's
+  own words, the directives in force, and a short log per turn. Only the human changes the
+  objective, so a late nuance can't silently replace it when the PM's context is compacted.
+- **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
 from a kanban CLI to a markdown table. Tool-specific notes live in `adapters/`.
@@ -69,9 +72,9 @@ python3 $T --data $D report --view v_outliers       # also v_ticket, v_agent, v_
 ## Layout
 
 ```
-SKILL.md          the skill: roles, lifecycle, the nine rules, DoD, metrics
+SKILL.md          the skill: roles, lifecycle, the ten rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
-templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN
+templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
 scripts/          check_report.py, trace/ (tracer.py, schema.sql, sources/), tests
 adapters/         opencode, Hermes kanban
 ```
