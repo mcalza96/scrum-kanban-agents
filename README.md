@@ -27,8 +27,10 @@ codebase, and it records what was needed to trust their work.
 - **A focus log that survives compaction.** The PM keeps `FOCUS.md`: the objective in the human's
   own words, the directives in force, and a short log per turn. Only the human changes the
   objective, so a late nuance can't silently replace it when the PM's context is compacted.
-  `scripts/focus.py anchor` feeds it to a session-start hook so it comes back after every
-  compaction, and `scripts/focus.py check` flags an objective that changed without the human.
+  One `FOCUS.md` per epic: `scripts/focus.py anchor epics/` feeds the active epic's anchor to a
+  session-start hook, so it comes back after every compaction and switches by itself when one
+  module closes and the next opens. `scripts/focus.py check` flags an objective that changed
+  without the human.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,

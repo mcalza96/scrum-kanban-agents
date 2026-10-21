@@ -104,14 +104,16 @@ pending → in progress → reported → closed
    the agent: duration, steps, test runs, re-reads, failures, tokens, and cost. The PM keeps them in
    a trace database with each verdict. Time informs the PM. It is never a target for the devs. Read
    `references/traceability.md`.
-10. **The objective survives the context.** The PM keeps `FOCUS.md`: an anchor with the
-    objective (the human's words, verbatim), the non-goals, and the directives in force, plus an
-    append-only log of one short entry per turn that changed something.
+10. **The objective survives the context.** The PM keeps one `FOCUS.md` per epic: an anchor with
+    the objective (the human's words, verbatim), the non-goals, and the directives in force, plus
+    an append-only log of one short entry per turn that changed something.
     - Only the human changes the objective. Every steering message is classified as `objective`,
       `constraint`, `nuance`, or `decision`; the default is `nuance`. A message that contradicts
       the anchor is a question to the human, not a new directive.
     - The PM re-reads the anchor at the start of every session, right after every compaction, and
       before every ticket or verdict. Its own summary of the conversation is not the anchor.
+    - One epic is `active` at a time. A closed epic keeps its file as history and is never loaded
+      again; only `project` constraints the human confirms carry over to the next one.
     - Why: a nuance given at the end of a turn survives a compaction better than the objective given
       at the start, so the PM takes it as the new direction, and the drift compounds with every
       compaction. Read `references/focus-log.md`.

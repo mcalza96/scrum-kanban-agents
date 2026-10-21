@@ -6,7 +6,7 @@ In this mode the board is a markdown table that every agent can read and edit.
 ## Layout
 
 ```
-<epic>/
+epics/<epic>/        # one folder per epic; only one has FOCUS.md in state active
   EPIC.md            # goal, lanes, rules that never break, suite commands, DoD
   STATUS.md          # the board (template in templates/STATUS.md)
   FOCUS.md           # objective, directives in force, PM turn log (references/focus-log.md)

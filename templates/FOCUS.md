@@ -1,5 +1,7 @@
 # Focus of epic <NAME>
 
+**State:** active
+
 Read the anchor whole at the start of every session, after every compaction, and before every
 ticket, verdict, or closing plan. Only the PM edits this file. Only the human changes the
 objective. See `references/focus-log.md`.
@@ -22,6 +24,8 @@ objective. See `references/focus-log.md`.
 | D-4 | nuance | T-07 | «...» | YYYY-MM-DD | in force |
 
 Kinds: `objective`, `constraint`, `nuance` (the default), `decision`.
+Scopes: `project` (may carry over to the next epic, if the human says so), `epic`, a ticket, a lane.
+States: `active`, `paused`, `closed (YYYY-MM-DD)`. Only one epic is `active`.
 
 ## Open questions to the human
 

@@ -94,9 +94,11 @@ Where the runtime can inject a file into the context, let it:
 
 - **Claude Code:** a `SessionStart` hook prints the anchor; it runs on startup, resume, and after
   every compaction (`matcher` `compact`), so the anchor enters the context right after the summary.
-  `scripts/focus.py anchor` prints everything above `## Log`, and prints a warning instead of
-  failing when the file is missing, so the hook never blocks a session. In the project's
-  `.claude/settings.json` (adjust both paths):
+  `scripts/focus.py anchor <epics dir>` finds the epic whose `FOCUS.md` says `**State:** active`
+  and prints its anchor (everything above `## Log`). With no active epic it prints a warning
+  instead of failing, so the hook never blocks a session. The hook points at the folder of epics,
+  not at one epic, so it never needs editing when a module ends and the next one starts. In the
+  project's `.claude/settings.json` (adjust both paths):
 
   ```json
   {
@@ -104,7 +106,7 @@ Where the runtime can inject a file into the context, let it:
       "SessionStart": [{
         "matcher": "startup|resume|compact",
         "hooks": [{ "type": "command",
-                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py anchor \"$CLAUDE_PROJECT_DIR/epic/FOCUS.md\"" }]
+                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py anchor \"$CLAUDE_PROJECT_DIR/epics\"" }]
       }]
     }
   }
@@ -113,11 +115,42 @@ Where the runtime can inject a file into the context, let it:
   the path of `FOCUS.md` in the PM's system prompt or project instructions with the order to read
   it first. That instruction survives compaction because it is not part of the conversation.
 
-## Where it lives
+## One focus per epic, not per board
+
+The objective belongs to an epic: a module, a migration, a feature. A board outlives its epics, and
+a focus file kept per board would carry the directives of a finished module into the next one: the
+same drift this file exists to stop, one level up.
+
+```
+epics/
+  payments/          State: closed (2026-10-14)   history, never loaded again
+    EPIC.md  STATUS.md  FOCUS.md  ...
+  notifications/     State: active                the hook loads this one
+    EPIC.md  STATUS.md  FOCUS.md  ...
+```
 
 - **File mode:** `FOCUS.md` next to `EPIC.md` and `STATUS.md`. `EPIC.md` keeps the plan (lanes,
   suites, DoD); `FOCUS.md` keeps what the human asked for and how that changed.
-- **Board mode:** the same file in the repo, or a pinned card that only the PM edits. Children
-  never edit it (`parent-focus.md`).
-- One `FOCUS.md` per epic. If a session covers several epics, each has its own, and the PM names
-  which one it is working on in the first line of every log entry.
+- **Board mode:** the same file in the repo, one folder per epic, even if every epic shares one
+  board. Children never edit it (`parent-focus.md`).
+
+### Lifecycle
+
+1. **Open.** The human states the objective of the new epic. The PM creates
+   `epics/<name>/FOCUS.md` from the template with `**State:** active` and the objective as D-1,
+   in the human's words.
+2. **Carry over, by name.** Directives with scope `project` («never touch the billing schema»,
+   «tests stay under 60 s») may still apply. The PM lists those of the last closed epic and asks
+   which ones carry over. Each one the human keeps is copied as a new directive with
+   «(from `<epic>` D-<n>)». Nothing else carries over: nuances, decisions and the old objective
+   stay with their epic.
+3. **Close.** When the epic's done criterion is met (or the human drops it), the PM writes a last
+   log entry comparing the result with D-1 and sets `**State:** closed (YYYY-MM-DD)`. The file
+   stays where it is, as the record of why the module is the way it is. It is never loaded again
+   by the hook.
+4. **Pause.** An epic put on hold for another one gets `**State:** paused` and a log entry saying
+   why and who asked. Resuming is the human's call, with a log entry.
+
+**One active epic at a time.** If two are `active`, the hook prints both anchors with a warning,
+and the PM asks the human which one to pause before the next ticket. With none active, it warns,
+and the PM asks for the objective before opening any ticket.

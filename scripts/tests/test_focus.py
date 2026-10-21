@@ -10,6 +10,8 @@ import focus  # noqa: E402
 
 GOOD = """# Focus of epic X
 
+**State:** active
+
 ## Objective
 
 > «ship A» (2026-10-01, D-1)
@@ -100,9 +102,61 @@ class FocusTest(unittest.TestCase):
             os.unlink(f.name)
         code, out = run(["anchor", "/nonexistent/FOCUS.md"])
         self.assertEqual(code, 0)
-        self.assertIn("not found", out)
+        self.assertIn("no active epic", out)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(run(["check", "/nonexistent/FOCUS.md"])[0], 2)
+
+
+    def test_state_line(self):
+        self.assertIn('no "**State:**" line',
+                      focus.check(GOOD.replace("**State:** active\n", ""), 60)[0])
+        self.assertIn("state 'done'", focus.check(GOOD.replace("active", "done", 1), 60)[0])
+        closed = GOOD.replace("**State:** active", "**State:** closed (2026-10-20)")
+        self.assertEqual(focus.check(closed, 60), [])
+
+
+class AnchorDirTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def epic(self, name, state, objective):
+        os.mkdir(os.path.join(self.root, name))
+        text = GOOD.replace("**State:** active", f"**State:** {state}").replace(
+            "Focus of epic X", f"Focus of epic {name}").replace("ship A", objective)
+        with open(os.path.join(self.root, name, "FOCUS.md"), "w") as f:
+            f.write(text)
+
+    def test_picks_the_active_epic(self):
+        self.epic("payments", "closed (2026-10-14)", "ship payments")
+        self.epic("notifications", "active", "ship notifications")
+        out = focus.anchor(self.root)
+        self.assertIn("ship notifications", out)
+        self.assertNotIn("ship payments", out)
+        self.assertNotIn("[focus]", out)
+
+    def test_no_active_epic_warns(self):
+        self.epic("payments", "closed (2026-10-14)", "ship payments")
+        out = focus.anchor(self.root)
+        self.assertTrue(out.startswith("[focus] no active epic"))
+        self.assertIn("payments", out)
+        self.assertNotIn("ship payments", out)
+
+    def test_two_active_epics_warn_and_print_both(self):
+        self.epic("a", "active", "ship a")
+        self.epic("b", "active", "ship b")
+        out = focus.anchor(self.root)
+        self.assertTrue(out.startswith("[focus] 2 epics are active"))
+        self.assertIn("ship a", out)
+        self.assertIn("ship b", out)
+
+    def test_paused_epic_is_skipped(self):
+        self.epic("a", "paused", "ship a")
+        self.epic("b", "active", "ship b")
+        self.assertNotIn("ship a", focus.anchor(self.root))
 
 
 if __name__ == "__main__":
