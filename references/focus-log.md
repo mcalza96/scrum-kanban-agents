@@ -53,6 +53,10 @@ directive (`D-<n>`) with the human's words quoted:
   - before writing or splitting a ticket, before a verdict, and before a closing plan.
 - **Write at the end of every turn that changed something:** a new directive, a ticket opened or
   closed, a verdict, a STOP answered. A turn that only reported status adds nothing.
+- **Lint after writing.** `scripts/focus.py check FOCUS.md` flags an anchor too long to read
+  whole, directive ids that repeat or point nowhere, zero or several objectives in force, and log
+  entries without an `Objective:` line or whose objective changed without naming an `objective`
+  directive. Exit 0 means nothing was flagged.
 - **Check before acting.** If the next step doesn't serve the objective, or breaks a directive in
   force, the PM says so and asks instead of doing it.
 
@@ -90,7 +94,9 @@ Where the runtime can inject a file into the context, let it:
 
 - **Claude Code:** a `SessionStart` hook prints the anchor; it runs on startup, resume, and after
   every compaction (`matcher` `compact`), so the anchor enters the context right after the summary.
-  For example, with the anchor above a `## Log` heading:
+  `scripts/focus.py anchor` prints everything above `## Log`, and prints a warning instead of
+  failing when the file is missing, so the hook never blocks a session. In the project's
+  `.claude/settings.json` (adjust both paths):
 
   ```json
   {
@@ -98,7 +104,7 @@ Where the runtime can inject a file into the context, let it:
       "SessionStart": [{
         "matcher": "startup|resume|compact",
         "hooks": [{ "type": "command",
-                    "command": "sed '/^## Log/,$d' \"$CLAUDE_PROJECT_DIR/epic/FOCUS.md\"" }]
+                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py anchor \"$CLAUDE_PROJECT_DIR/epic/FOCUS.md\"" }]
       }]
     }
   }

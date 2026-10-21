@@ -27,6 +27,8 @@ codebase, and it records what was needed to trust their work.
 - **A focus log that survives compaction.** The PM keeps `FOCUS.md`: the objective in the human's
   own words, the directives in force, and a short log per turn. Only the human changes the
   objective, so a late nuance can't silently replace it when the PM's context is compacted.
+  `scripts/focus.py anchor` feeds it to a session-start hook so it comes back after every
+  compaction, and `scripts/focus.py check` flags an objective that changed without the human.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
@@ -75,7 +77,7 @@ python3 $T --data $D report --view v_outliers       # also v_ticket, v_agent, v_
 SKILL.md          the skill: roles, lifecycle, the ten rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
 templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
-scripts/          check_report.py, trace/ (tracer.py, schema.sql, sources/), tests
+scripts/          check_report.py, focus.py, trace/ (tracer.py, schema.sql, sources/), tests
 adapters/         opencode, Hermes kanban
 ```
 

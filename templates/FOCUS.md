@@ -18,7 +18,8 @@ objective. See `references/focus-log.md`.
 |---|---|---|---|---|---|
 | D-1 | objective | epic | «...» | YYYY-MM-DD | in force |
 | D-2 | constraint | epic | «...» | YYYY-MM-DD | in force |
-| D-3 | nuance | T-07 | «...» | YYYY-MM-DD | superseded by D-5 |
+| D-3 | nuance | T-07 | «...» | YYYY-MM-DD | superseded by D-4 |
+| D-4 | nuance | T-07 | «...» | YYYY-MM-DD | in force |
 
 Kinds: `objective`, `constraint`, `nuance` (the default), `decision`.
 

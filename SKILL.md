@@ -177,5 +177,6 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
+| `scripts/focus.py` | Prints the `FOCUS.md` anchor for a session-start hook, flags what lets the objective drift |
 | `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
 | `adapters/` | Tool-specific notes and helpers: `opencode.md`, `hermes-kanban/` |
