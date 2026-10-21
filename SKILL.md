@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.4.0
+version: 0.5.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -62,7 +62,7 @@ pending → in progress → reported → closed
 - **One session, one task.** A session ends when its task's report is written. The next task,
   even for the same agent, starts a new session (rule 8).
 
-## The nine rules
+## The ten rules
 
 1. **Evidence is literal.** Every claim in a report comes with the exact `$ command` and its
    output, pasted as is: no `...`, no hand-written diffs, no hand-written `ls -l`, no estimated
@@ -104,6 +104,22 @@ pending → in progress → reported → closed
    the agent: duration, steps, test runs, re-reads, failures, tokens, and cost. The PM keeps them in
    a trace database with each verdict. Time informs the PM. It is never a target for the devs. Read
    `references/traceability.md`.
+10. **The objective survives the context.** Focus files keep, at three levels (`focus/PROJECT.md`,
+    `focus/epics/<epic>.md`, `focus/lines/<line>.md`, one PM per line), an anchor with the
+    objective (the PO's words, verbatim), the non-goals, and the directives in force, plus an
+    append-only log of one short entry per turn that changed something.
+    - Only the PO changes an objective. Every steering message is classified by kind (`objective`,
+      `constraint`, `nuance`, `decision`; default `nuance`) and by level (default: the PM's own
+      line). A message that contradicts the anchor or a wider level is a question to the PO, not a
+      new directive.
+    - Each PM re-reads its anchors (project, its line's active epic, its line) at the start of every
+      session, right after every compaction, and before every ticket or verdict. Its own summary of
+      the conversation is not the anchor.
+    - A line file has one writer, its PM. A closed epic keeps its file as history and is never
+      loaded again; the line file is the thread that runs across epics.
+    - Why: a nuance given at the end of a turn survives a compaction better than the objective given
+      at the start, so the PM takes it as the new direction, and the drift compounds with every
+      compaction. Read `references/focus-log.md`.
 
 ## Definition of Done
 
@@ -160,10 +176,12 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/test-speed.md` | Fast suites and single-run output |
 | `references/closing.md` | Closing plan for an epic that keeps growing |
 | `references/parent-focus.md` | The PM's own todo, ticket cap, children never mutate the board |
+| `references/focus-log.md` | Focus files per project, epic, and line: objectives and directives that survive compaction |
 | `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
 | `references/plan-attack.md` | Blind adversarial review of a complex plan before execution |
 | `references/lessons.md` | Field lessons, grouped by topic |
-| `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md` |
+| `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
+| `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
 | `adapters/` | Tool-specific notes and helpers: `opencode.md`, `hermes-kanban/` |

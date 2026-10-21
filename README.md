@@ -24,7 +24,13 @@ codebase, and it records what was needed to trust their work.
   the plan: figures, feasibility, logic and gates, and scope. The PM re-verifies each finding and
   attacks its own fixes in a second round. In the field, this found gates that could not fail and a
   goal that no card delivered, in about three minutes.
-- **Templates.** `STATUS.md`, tickets, reviews, prompts, and a closing plan.
+- **Focus that survives compaction.** Focus files at three levels (project, epic, line of work,
+  one PM per line) hold each objective in the PO's own words, the directives in force, and a short
+  log per turn. Only the PO changes an objective, so a late nuance can't silently replace it when a
+  PM's context is compacted. `PM_LINE=ui` plus `scripts/focus.py anchor focus/` in a session-start
+  hook gives each PM its project, its active epic, and its line after every compaction.
+  `scripts/focus.py check focus/` flags an objective that changed without the PO.
+- **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
 from a kanban CLI to a markdown table. Tool-specific notes live in `adapters/`.
@@ -69,10 +75,10 @@ python3 $T --data $D report --view v_outliers       # also v_ticket, v_agent, v_
 ## Layout
 
 ```
-SKILL.md          the skill: roles, lifecycle, the nine rules, DoD, metrics
+SKILL.md          the skill: roles, lifecycle, the ten rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
-templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN
-scripts/          check_report.py, trace/ (tracer.py, schema.sql, sources/), tests
+templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
+scripts/          check_report.py, focus.py, trace/ (tracer.py, schema.sql, sources/), tests
 adapters/         opencode, Hermes kanban
 ```
 
