@@ -24,13 +24,12 @@ codebase, and it records what was needed to trust their work.
   the plan: figures, feasibility, logic and gates, and scope. The PM re-verifies each finding and
   attacks its own fixes in a second round. In the field, this found gates that could not fail and a
   goal that no card delivered, in about three minutes.
-- **A focus log that survives compaction.** The PM keeps `FOCUS.md`: the objective in the human's
-  own words, the directives in force, and a short log per turn. Only the human changes the
-  objective, so a late nuance can't silently replace it when the PM's context is compacted.
-  One `FOCUS.md` per epic: `scripts/focus.py anchor epics/` feeds the active epic's anchor to a
-  session-start hook, so it comes back after every compaction and switches by itself when one
-  module closes and the next opens. `scripts/focus.py check` flags an objective that changed
-  without the human.
+- **Focus that survives compaction.** Focus files at three levels (project, epic, line of work,
+  one PM per line) hold each objective in the PO's own words, the directives in force, and a short
+  log per turn. Only the PO changes an objective, so a late nuance can't silently replace it when a
+  PM's context is compacted. `PM_LINE=ui` plus `scripts/focus.py anchor focus/` in a session-start
+  hook gives each PM its project, its active epic, and its line after every compaction.
+  `scripts/focus.py check focus/` flags an objective that changed without the PO.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,

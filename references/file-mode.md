@@ -6,10 +6,9 @@ In this mode the board is a markdown table that every agent can read and edit.
 ## Layout
 
 ```
-epics/<epic>/        # one folder per epic; only one has FOCUS.md in state active
+<epic>/
   EPIC.md            # goal, lanes, rules that never break, suite commands, DoD
   STATUS.md          # the board (template in templates/STATUS.md)
-  FOCUS.md           # objective, directives in force, PM turn log (references/focus-log.md)
   PROMPT-AGENT.md    # shared rules every dev prompt points to
   CLOSING-PLAN.md    # only once the epic needs one (references/closing.md)
   <TICKET-ID>.md     # one file per ticket (templates/TICKET.md)
@@ -17,6 +16,9 @@ epics/<epic>/        # one folder per epic; only one has FOCUS.md in state activ
     <TICKET-ID>.md            # the dev's report
     <TICKET-ID>-review.md     # the PM's review, with each return appended
 ```
+
+Objectives and the PO's directives live outside the epic folder, in `focus/` (project, epics,
+lines of work; `references/focus-log.md`).
 
 ## `STATUS.md` rules
 

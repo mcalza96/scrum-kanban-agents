@@ -8,13 +8,15 @@ the new directive. After three compactions the epic is building something the hu
 for, and every step looked reasonable.
 
 The fix is the same as for the board: what must survive goes in a file, not in the PM's memory.
-`FOCUS.md` (template in `templates/FOCUS.md`) holds the objective and the directives in force, and
-the PM re-reads it instead of trusting its summary.
+The focus files (`focus/`, template in `templates/FOCUS.md`) hold the objectives and the directives
+in force at three levels (project, epic, line of work), and each PM re-reads its own set instead of
+trusting its summary.
 
 ## Two parts, two owners
 
-- **Anchor.** The objective of the epic, its non-goals, and the directives in force. It is short
-  (it must fit in one screen) and the PM reads it whole at every re-anchor point.
+- **Anchor.** The objective of the file's level (project, epic, or line), its non-goals, and the
+  directives in force. It is short (it must fit in one screen) and the PM reads it whole at every
+  re-anchor point.
   - The objective is the human's words, quoted verbatim, with the date. The PM never paraphrases
     it, because a paraphrase written after a compaction carries the drift into the file.
   - **Only the human changes the objective**, by saying so explicitly. The PM may propose a change;
@@ -33,7 +35,7 @@ directive (`D-<n>`) with the human's words quoted:
 
 | Kind | Meaning | Effect on the anchor |
 |---|---|---|
-| `objective` | Replaces or changes what the epic is for | New objective; the old one is marked `superseded by D-<n>` |
+| `objective` | Replaces or changes what the project, epic, or line is for | New objective; the old one is marked `superseded by D-<n>` |
 | `constraint` | Something that must or must not happen, under the same objective | Added to the directives in force |
 | `nuance` | A refinement of how to do part of the work | Added, scoped to the part it refines (a ticket, a lane) |
 | `decision` | The answer to a STOP point or a question | Added, linked to the ticket |
@@ -53,7 +55,7 @@ directive (`D-<n>`) with the human's words quoted:
   - before writing or splitting a ticket, before a verdict, and before a closing plan.
 - **Write at the end of every turn that changed something:** a new directive, a ticket opened or
   closed, a verdict, a STOP answered. A turn that only reported status adds nothing.
-- **Lint after writing.** `scripts/focus.py check FOCUS.md` flags an anchor too long to read
+- **Lint after writing.** `scripts/focus.py check focus/` flags an anchor too long to read
   whole, directive ids that repeat or point nowhere, zero or several objectives in force, and log
   entries without an `Objective:` line or whose objective changed without naming an `objective`
   directive. Exit 0 means nothing was flagged.
@@ -87,18 +89,84 @@ The log grows; the anchor must not. When the directives in force no longer fit o
 The PM reads the log only when it needs the history (why a directive exists, when it changed). The
 anchor is what it reads every time.
 
+## Three levels: project, epic, line
+
+The PO owns the project. The project has several lines of work (UI, DATA, INFRA, ...), each run by
+one PM, and epics that involve one or more lines. Each level has its own focus file, all from
+`templates/FOCUS.md`, in one folder:
+
+```
+focus/
+  PROJECT.md          Level: project   the PO's objective, directives for every line
+  epics/
+    payments.md       Level: epic      State: closed (2026-10-14)   never loaded again
+    notifications.md  Level: epic      State: active   Lines: ui, data
+  lines/
+    ui.md             Level: line      the UI PM's thread: mandate, directives, turn log
+    data.md           Level: line      the DATA PM's thread
+```
+
+- **Project.** The objective of the whole project and the directives every line obeys («never
+  touch the billing schema», «tests stay under 60 s»). It changes rarely.
+- **Epic.** The objective of one module or feature, the lines it involves (`**Lines:**`), and the
+  contracts between those lines («DATA exposes `/v2/notifications`, UI only reads it»). It is
+  shared by every PM of those lines. It opens and closes.
+- **Line.** One PM's thread across epics: the line's mandate, its standing directives, and the log
+  of that PM's turns (the first field of each entry names the epic). It outlives the epics, so this
+  is the thread that survives compactions, new sessions, and the end of an epic.
+
+### Who writes where
+
+- Every directive is the PO's words, wherever it lands.
+- **A line file has one writer: its PM.** Other PMs read it, never edit it.
+- **Project and epic files are shared.** A PM appends a row or a log entry there only after the PO
+  confirmed the directive belongs at that level. It re-reads the file right before writing, appends
+  in one edit, and never edits rows another PM wrote.
+- The board stays as it is (`file-mode.md`, `board-mode.md`): focus files hold intent, the board
+  holds work.
+
+### Classify the level, too
+
+A steering message gets a level besides its kind. **The default is the narrowest one: the PM's own
+line.** A message goes higher only when the PO says so, or confirms it when asked:
+
+- «make the buttons bigger», said to the UI PM → `lines/ui.md`, nuance;
+- «notifications must also work offline» → it changes the epic for every line: the UI PM asks
+  «does this apply to the whole notifications epic, DATA included?» and, on a yes, appends it to
+  `epics/notifications.md`. The DATA PM sees it on its next re-anchor;
+- a message that contradicts a wider level (a line nuance against an epic contract) is a question
+  to the PO, never a line directive that overrides the wider one.
+
+### Lifecycle
+
+1. **Open an epic.** The PO states its objective and the lines it involves. One PM creates
+   `epics/<name>.md` with `**State:** active`, `**Lines:**`, and the objective as D-1. Each
+   involved PM writes an entry in its line log: «joins <epic>».
+2. **One active epic per line.** A line in two active epics gets a warning on every re-anchor until
+   the PO pauses one (`**State:** paused`, with a log entry saying why and who asked).
+3. **Close an epic.** When its done criterion is met, or the PO drops it, each involved PM writes a
+   last entry in its line log, and one PM writes the closing entry in the epic file comparing the
+   result with D-1 and sets `**State:** closed (YYYY-MM-DD)`. The file stays as the record of why
+   the module is the way it is; the hook never loads it again.
+4. **Nothing carries over by accident.** Project directives live in `PROJECT.md` and line
+   directives in the line file, so they persist on their own. Epic directives die with the epic. If
+   the PO wants one to outlive it, it is moved, in the PO's words, to the line or project file.
+5. **Close a line** only when the PO dissolves it: last log entry, `**State:** closed (date)`.
+
 ## Make the re-read mechanical where the runtime allows it
 
 «Re-read after compaction» is a rule the PM forgets for the same reason it forgets the objective.
-Where the runtime can inject a file into the context, let it:
+Where the runtime can inject text into the context, let it:
 
-- **Claude Code:** a `SessionStart` hook prints the anchor; it runs on startup, resume, and after
-  every compaction (`matcher` `compact`), so the anchor enters the context right after the summary.
-  `scripts/focus.py anchor <epics dir>` finds the epic whose `FOCUS.md` says `**State:** active`
-  and prints its anchor (everything above `## Log`). With no active epic it prints a warning
-  instead of failing, so the hook never blocks a session. The hook points at the folder of epics,
-  not at one epic, so it never needs editing when a module ends and the next one starts. In the
-  project's `.claude/settings.json` (adjust both paths):
+- **Claude Code:** a `SessionStart` hook runs on startup, resume, and after every compaction
+  (`matcher` `compact`), so its output enters the context right after the summary.
+  `scripts/focus.py anchor focus/` prints, in this order, the project anchor, the anchors of the
+  active epics that list the PM's line, and the line's own anchor (each anchor is everything above
+  `## Log`). The line comes from `PM_LINE`: launch each PM with its own, for example
+  `PM_LINE=ui claude`. With a single active line it is picked by itself. Missing files, no active
+  epic, or a line in two active epics come back as `[focus]` warnings, never as a failure, so the
+  hook never blocks a session. The hook never needs editing when an epic closes and the next opens.
+  In the project's `.claude/settings.json` (adjust both paths):
 
   ```json
   {
@@ -106,51 +174,13 @@ Where the runtime can inject a file into the context, let it:
       "SessionStart": [{
         "matcher": "startup|resume|compact",
         "hooks": [{ "type": "command",
-                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py anchor \"$CLAUDE_PROJECT_DIR/epics\"" }]
+                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py anchor \"$CLAUDE_PROJECT_DIR/focus\"" }]
       }]
     }
   }
   ```
 - **Other runtimes:** use their pre-compaction or session-start hook if they have one. If not, put
-  the path of `FOCUS.md` in the PM's system prompt or project instructions with the order to read
-  it first. That instruction survives compaction because it is not part of the conversation.
-
-## One focus per epic, not per board
-
-The objective belongs to an epic: a module, a migration, a feature. A board outlives its epics, and
-a focus file kept per board would carry the directives of a finished module into the next one: the
-same drift this file exists to stop, one level up.
-
-```
-epics/
-  payments/          State: closed (2026-10-14)   history, never loaded again
-    EPIC.md  STATUS.md  FOCUS.md  ...
-  notifications/     State: active                the hook loads this one
-    EPIC.md  STATUS.md  FOCUS.md  ...
-```
-
-- **File mode:** `FOCUS.md` next to `EPIC.md` and `STATUS.md`. `EPIC.md` keeps the plan (lanes,
-  suites, DoD); `FOCUS.md` keeps what the human asked for and how that changed.
-- **Board mode:** the same file in the repo, one folder per epic, even if every epic shares one
-  board. Children never edit it (`parent-focus.md`).
-
-### Lifecycle
-
-1. **Open.** The human states the objective of the new epic. The PM creates
-   `epics/<name>/FOCUS.md` from the template with `**State:** active` and the objective as D-1,
-   in the human's words.
-2. **Carry over, by name.** Directives with scope `project` («never touch the billing schema»,
-   «tests stay under 60 s») may still apply. The PM lists those of the last closed epic and asks
-   which ones carry over. Each one the human keeps is copied as a new directive with
-   «(from `<epic>` D-<n>)». Nothing else carries over: nuances, decisions and the old objective
-   stay with their epic.
-3. **Close.** When the epic's done criterion is met (or the human drops it), the PM writes a last
-   log entry comparing the result with D-1 and sets `**State:** closed (YYYY-MM-DD)`. The file
-   stays where it is, as the record of why the module is the way it is. It is never loaded again
-   by the hook.
-4. **Pause.** An epic put on hold for another one gets `**State:** paused` and a log entry saying
-   why and who asked. Resuming is the human's call, with a log entry.
-
-**One active epic at a time.** If two are `active`, the hook prints both anchors with a warning,
-and the PM asks the human which one to pause before the next ticket. With none active, it warns,
-and the PM asks for the objective before opening any ticket.
+  the paths of the PM's three files in its system prompt or project instructions with the order to
+  read them first. That instruction survives compaction because it is not part of the conversation.
+- **Lint:** `scripts/focus.py check focus/` checks every file plus what only shows across files: an
+  epic naming a line with no file, a line in two active epics.

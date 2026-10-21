@@ -1,31 +1,33 @@
-# Focus of epic <NAME>
+# Focus of <project | epic | line> <NAME>
 
+**Level:** line
 **State:** active
+**Lines:** <epic only: the lines of work it involves, e.g. ui, data, infra; delete this line otherwise>
 
 Read the anchor whole at the start of every session, after every compaction, and before every
-ticket, verdict, or closing plan. Only the PM edits this file. Only the human changes the
-objective. See `references/focus-log.md`.
+ticket, verdict, or closing plan. Every directive is the PO's words. Project and epic files are
+shared by every PM; a line file is written only by that line's PM. See `references/focus-log.md`.
 
 ## Objective
 
-> «<the human's exact words>» (YYYY-MM-DD, D-1)
+> «<the PO's exact words>» (YYYY-MM-DD, D-1)
 
 ## Non-goals
 
-- <what the epic will not do, in the human's words when they said it>
+- <what this project, epic, or line will not do, in the PO's words>
 
 ## Directives in force
 
 | Id | Kind | Scope | Human's words | Date | Status |
 |---|---|---|---|---|---|
-| D-1 | objective | epic | «...» | YYYY-MM-DD | in force |
-| D-2 | constraint | epic | «...» | YYYY-MM-DD | in force |
+| D-1 | objective | line | «...» | YYYY-MM-DD | in force |
+| D-2 | constraint | line | «...» | YYYY-MM-DD | in force |
 | D-3 | nuance | T-07 | «...» | YYYY-MM-DD | superseded by D-4 |
 | D-4 | nuance | T-07 | «...» | YYYY-MM-DD | in force |
 
 Kinds: `objective`, `constraint`, `nuance` (the default), `decision`.
-Scopes: `project` (may carry over to the next epic, if the human says so), `epic`, a ticket, a lane.
-States: `active`, `paused`, `closed (YYYY-MM-DD)`. Only one epic is `active`.
+Scopes: this file's level, or narrower (a ticket, a lane). Wider goes to the wider file.
+States: `active`, `paused`, `closed (YYYY-MM-DD)`. A line works on one active epic at a time.
 
 ## Open questions to the human
 
@@ -35,8 +37,8 @@ States: `active`, `paused`, `closed (YYYY-MM-DD)`. Only one epic is `active`.
 
 Append-only. One entry per turn that changed something. Never rewrite past entries.
 
-### YYYY-MM-DD HH:MM · <turn summary in one line>
-- Human said: «exact words» → D-<n> (<kind>, scope <scope>)
+### YYYY-MM-DD HH:MM · <epic> · <turn summary in one line>
+- PO said: «exact words» → D-<n> (<kind>, scope <scope>), or → epics/<epic>.md D-<n>
 - Done: <ticket ids and verdicts>
 - Objective: unchanged (D-1)
 - Next: <next step>
