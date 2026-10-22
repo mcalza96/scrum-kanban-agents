@@ -3,6 +3,7 @@
 **Level:** line
 **State:** active
 **Lines:** <epic only: the lines of work it involves, e.g. ui, data, infra; delete this line otherwise>
+**Sessions:** <line only: the chats that ran this line, written by focus.py bind; delete otherwise>
 
 Read the anchor whole at the start of every session, after every compaction, and before every
 ticket, verdict, or closing plan. Every directive is the PO's words. Project and epic files are

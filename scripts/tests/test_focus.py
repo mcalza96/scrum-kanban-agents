@@ -1,4 +1,6 @@
 import contextlib
+import datetime
+import json
 import io
 import os
 import sys
@@ -191,13 +193,12 @@ class AnchorDirTest(unittest.TestCase):
     def test_missing_files_warn_without_failing(self):
         out = focus.anchor(self.root, "ui")
         self.assertIn("no " + os.path.join(self.root, "PROJECT.md"), out)
-        self.assertIn("no active epic involves line 'ui'", out)
         self.assertIn("line 'ui' has no focus yet", out)
 
     def test_check_dir_cross_file(self):
         self.project()
         self.write("epics/ghost.md", "epic", "paused", "x", "ui, mobile")
-        flags = focus.check_dir(self.root, 60)
+        flags = focus.check_dir(self.root, 60, today=datetime.date(2026, 10, 4))
         self.assertTrue(any("line 'mobile' has no lines/mobile.md" in f for f in flags))
         self.assertTrue(any("data.md: 2 active epics" in f for f in flags))
         self.assertEqual(len(flags), 2, flags)
@@ -211,6 +212,108 @@ class AnchorDirTest(unittest.TestCase):
             del os.environ["PM_LINE"]
         self.assertEqual(code, 0)
         self.assertIn("ui mandate", out)
+
+
+class SessionTest(unittest.TestCase):
+    """Each chat is bound to one line; new chats open a line or join one."""
+
+    NOW = datetime.datetime(2026, 10, 22, 9, 30)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        with open(os.path.join(self.root, "PROJECT.md"), "w") as f:
+            f.write(GOOD.replace("**Level:** line", "**Level:** project")
+                    .replace("ship A", "project goal"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def text(self, line):
+        with open(os.path.join(self.root, "lines", f"{line}.md")) as f:
+            return f.read()
+
+    def test_new_chat_gets_project_and_index(self):
+        focus.bind(self.root, "ui", "s1", self.NOW)
+        out = focus.anchor(self.root, None, "s2")
+        self.assertTrue(out.startswith("[focus] this chat (session s2) has no line of work yet"))
+        self.assertIn("project goal", out)
+        self.assertIn("- ui · last entry 2026-10-22", out)
+        self.assertIn("focus.py bind", out)
+        self.assertNotIn("# Focus of line ui", out)
+
+    def test_bind_opens_a_line_that_passes_check(self):
+        out = focus.bind(self.root, "ui", "s1", self.NOW)
+        self.assertTrue(out.startswith("[focus] opened line 'ui'"))
+        self.assertIn("has no objective yet", out)
+        text = self.text("ui")
+        self.assertEqual(focus.sessions_of(text), ["s1"])
+        self.assertEqual(focus.check(text, 60), [])
+        self.assertIn("### 2026-10-22 09:30 · — · line opened by chat s1", text)
+
+    def test_bound_chat_gets_its_line(self):
+        focus.bind(self.root, "ui", "s1", self.NOW)
+        focus.bind(self.root, "data", "s2", self.NOW)
+        out = focus.anchor(self.root, None, "s2")
+        self.assertIn("# Focus of line data", out)
+        self.assertNotIn("# Focus of line ui", out)
+        self.assertIn("project goal", out)
+
+    def test_join_adds_session_and_entry(self):
+        focus.bind(self.root, "ui", "s1", self.NOW)
+        out = focus.bind(self.root, "ui", "s2", self.NOW)
+        self.assertIn("Earlier chats on it: s1", out)
+        text = self.text("ui")
+        self.assertEqual(focus.sessions_of(text), ["s1", "s2"])
+        self.assertIn("chat s2 joined", "\n".join(focus.split(text)[1]))
+        self.assertTrue(text.rstrip().endswith("## Archived"))
+        self.assertEqual(focus.check(text, 60), [])
+        self.assertIn("already on line", focus.bind(self.root, "ui", "s2", self.NOW))
+
+    def test_join_adds_sessions_header_when_missing(self):
+        os.mkdir(os.path.join(self.root, "lines"))
+        with open(os.path.join(self.root, "lines", "ui.md"), "w") as f:
+            f.write(GOOD)
+        focus.bind(self.root, "ui", "s9", self.NOW)
+        self.assertEqual(focus.sessions_of(self.text("ui")), ["s9"])
+
+    def test_bind_refuses_bad_names_and_second_line(self):
+        with self.assertRaises(ValueError):
+            focus.bind(self.root, "UI stuff", "s1", self.NOW)
+        focus.bind(self.root, "ui", "s1", self.NOW)
+        with self.assertRaises(ValueError):
+            focus.bind(self.root, "data", "s1", self.NOW)
+
+    def test_check_dir_flags_stale_lines_and_shared_sessions(self):
+        focus.bind(self.root, "ui", "s1", self.NOW)
+        focus.bind(self.root, "data", "s2", self.NOW)
+        path = os.path.join(self.root, "lines", "data.md")
+        with open(path) as f:
+            text = f.read()
+        with open(path, "w") as f:
+            f.write(text.replace("**Sessions:** s2", "**Sessions:** s2, s1"))
+        flags = focus.check_dir(self.root, 60, today=datetime.date(2026, 11, 30))
+        self.assertTrue(any("session s1 is also bound to line" in f for f in flags), flags)
+        self.assertEqual(sum("days old" in f for f in flags), 2, flags)
+        self.assertFalse(any("days old" in f for f in
+                             focus.check_dir(self.root, 60, today=datetime.date(2026, 10, 23))))
+
+    def test_hook_reads_session_from_stdin(self):
+        focus.bind(self.root, "ui", "abc-123", self.NOW)
+        stdin = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"session_id": "abc-123", "source": "compact"}))
+        try:
+            code, out = run(["hook", self.root])
+        finally:
+            sys.stdin = stdin
+        self.assertEqual(code, 0)
+        self.assertIn("# Focus of line ui", out)
+        sys.stdin = io.StringIO("not json")
+        try:
+            code, out = run(["hook", self.root])
+        finally:
+            sys.stdin = stdin
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

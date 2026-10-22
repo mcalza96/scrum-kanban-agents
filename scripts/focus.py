@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Print and check the PM focus files (see references/focus-log.md).
 
+    focus.py hook focus/ < hook.json    what a session-start hook prints (session id on stdin)
+    focus.py bind focus/ ui --session S open line "ui" for chat S, or add S to it
     focus.py anchor focus/ --line ui    the anchors the PM of line "ui" must hold
     focus.py check focus/               flag what lets an objective drift
     focus.py check focus/lines/ui.md    the same for one file
@@ -9,13 +11,16 @@ The focus folder holds one file per level, all from templates/FOCUS.md:
 
     focus/PROJECT.md        Level: project   the PO's objective and project-wide directives
     focus/epics/<epic>.md   Level: epic      an epic's objective, its Lines, cross-line contracts
-    focus/lines/<line>.md   Level: line      one PM's thread: its mandate, directives, turn log
+    focus/lines/<line>.md   Level: line      one PM's thread: its mandate, directives, turn log,
+                                             and the chats (Sessions) that ran it
 
 `anchor` is what a session-start or post-compaction hook injects: the project anchor, the anchors of
 the active epics that name the line in their "**Lines:**", and the line's own anchor (each anchor is
-everything above "## Log"). The line comes from --line or $PM_LINE; with a single active line it is
-picked by itself. Problems come back as "[focus]" warnings with exit 0, so the hook never blocks a
-session.
+everything above "## Log"). The line comes from --line or $PM_LINE, else from the line whose
+"**Sessions:**" lists the chat's session id. A chat on no line gets the project anchor and the index
+of active lines, and the PM binds it with `bind` before anything else. `hook` is `anchor` with the
+session id read from the JSON a Claude Code hook gets on stdin. Problems come back as "[focus]"
+warnings with exit 0, so the hook never blocks a session.
 
 `check` flags, per file:
   * a missing or invalid "**Level:**" (project, epic, line) or "**State:**" (active, paused,
@@ -26,14 +31,17 @@ session.
   * zero or several objectives in force;
   * log entries without an "Objective:" line, and entries whose objective changed without naming an
     `objective` directive.
-On a folder it also flags epics naming a line with no file, and lines in several active epics.
+On a folder it also flags epics naming a line with no file, lines in several active epics, a
+session bound to two lines, and active lines whose last entry is older than --stale-days.
 
 Exit code: 0 if nothing was flagged, 1 otherwise, 2 on usage errors.
 """
 from __future__ import annotations
 
 import argparse
+import datetime
 import glob
+import json
 import os
 import re
 import sys
@@ -48,6 +56,43 @@ SUPERSEDED = re.compile(r"superseded by (D-\d+)")
 OBJECTIVE_LINE = re.compile(r"^\s*-\s*Objective:\s*(.*)$")
 STATE_OK = re.compile(r"^(active|paused|closed \(\d{4}-\d{2}-\d{2}\))$")
 LEVELS = {"project", "epic", "line"}
+LINE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+QUOTE = re.compile(r"«([^»]*)»")
+ENTRY_DATE = re.compile(r"^###\s+(\d{4}-\d{2}-\d{2})")
+PLACEHOLDER = "<the PO's exact words>"
+LINE_SKELETON = """# Focus of line {name}
+
+**Level:** line
+**State:** active
+**Sessions:** {session}
+
+Read the anchor whole at the start of every session, after every compaction, and before every
+ticket, verdict, or closing plan. Every directive is the PO's words. Only this line's PM writes
+this file. See `references/focus-log.md`.
+
+## Objective
+
+> «{placeholder}» ({date}, D-1)
+
+## Non-goals
+
+## Directives in force
+
+| Id | Kind | Scope | Human's words | Date | Status |
+|---|---|---|---|---|---|
+| D-1 | objective | line | «{placeholder}» | {date} | in force |
+
+## Open questions to the human
+
+## Log
+
+Append-only. One entry per turn that changed something. Never rewrite past entries.
+
+### {now} · — · line opened by chat {session}
+- Objective: unchanged (D-1), pending: ask the PO and write their words as D-1
+
+## Archived
+"""
 
 
 @dataclass
@@ -86,6 +131,35 @@ def lines_of(text: str) -> list[str]:
     return [x.strip() for x in (header(text, "Lines") or "").split(",") if x.strip()]
 
 
+def sessions_of(text: str) -> list[str]:
+    return [x.strip() for x in (header(text, "Sessions") or "").split(",") if x.strip()]
+
+
+def objective_quote(text: str) -> str:
+    anchor_lines, _ = split(text)
+    body = "\n".join(anchor_lines)
+    i = body.find("## Objective")
+    m = QUOTE.search(body, i) if i >= 0 else None
+    return m.group(1) if m else ""
+
+
+def line_files(root: str) -> dict[str, str]:
+    return {os.path.splitext(os.path.basename(f))[0]: f
+            for f in sorted(glob.glob(os.path.join(root, "lines", "*.md")))}
+
+
+def line_for_session(root: str, session: str) -> str | None:
+    for name, f in line_files(root).items():
+        if session in sessions_of(read(f) or ""):
+            return name
+    return None
+
+
+def last_entry_date(text: str) -> str | None:
+    dates = [m.group(1) for m in map(ENTRY_DATE.match, split(text)[1]) if m]
+    return max(dates) if dates else None
+
+
 def read(path: str) -> str | None:
     try:
         with open(path, encoding="utf-8") as f:
@@ -98,8 +172,11 @@ def anchor_text(path: str, text: str) -> str:
     return f"<!-- {path} -->\n" + "\n".join(split(text)[0]).rstrip()
 
 
-def anchor(root: str, line: str | None = None) -> str:
+def anchor(root: str, line: str | None = None, session: str | None = None) -> str:
     """Anchors a PM of `line` must hold: project, the line's active epics, the line.
+
+    Without `line`, the line is the one whose "**Sessions:**" lists `session` (the chat). A chat
+    bound to no line gets the project anchor and the index of active lines, to pick or open one.
 
     root is a folder with PROJECT.md, epics/*.md and lines/*.md, or a single focus file. Never
     raises and never fails: problems come back as "[focus]" warnings, so a hook never blocks a
@@ -119,10 +196,22 @@ def anchor(root: str, line: str | None = None) -> str:
     else:
         parts.append(anchor_text(project, text))
 
-    lines = {os.path.splitext(os.path.basename(f))[0]: f
-             for f in sorted(glob.glob(os.path.join(root, "lines", "*.md")))}
+    lines = line_files(root)
     active_lines = [n for n, f in lines.items() if state(read(f) or "") == "active"]
-    if not line and len(active_lines) == 1:
+    if not line and session:
+        line = line_for_session(root, session)
+        if not line:
+            warn.append(f"this chat (session {session}) has no line of work yet. Before anything "
+                        "else, ask the PO which line it runs: a new one, or one below. Then run: "
+                        f"focus.py bind {root} <line> --session {session}")
+            index = ["Active lines:" if active_lines else "No active lines yet."]
+            for n in active_lines:
+                t = read(lines[n]) or ""
+                goal = objective_quote(t)
+                goal = f"«{goal}»" if goal and goal != PLACEHOLDER else "no objective yet"
+                index.append(f"- {n} · last entry {last_entry_date(t) or '—'} · {goal}")
+            return "\n\n".join([f"[focus] {w}" for w in warn] + parts + ["\n".join(index)])
+    if not line and not session and len(active_lines) == 1:
         line = active_lines[0]
 
     epics = []
@@ -132,11 +221,8 @@ def anchor(root: str, line: str | None = None) -> str:
             epics.append((f, t))
     if not line:
         warn.append(f"{len(active_lines)} active lines ({', '.join(active_lines) or 'none'}) and "
-                    "this session does not say which one it runs: set PM_LINE (or --line). "
-                    "Showing every active epic.")
-    elif not epics:
-        warn.append(f"no active epic involves line {line!r}. Ask the PO what this line works on "
-                    "before any ticket.")
+                    "this session does not say which one it runs: bind it (focus.py bind), or "
+                    "set PM_LINE. Showing every active epic.")
     elif len(epics) > 1:
         warn.append(f"{len(epics)} active epics involve line {line!r}: "
                     + ", ".join(f for f, _ in epics) + ". Ask the PO which one comes first.")
@@ -146,12 +232,67 @@ def anchor(root: str, line: str | None = None) -> str:
         f = lines.get(line, os.path.join(root, "lines", f"{line}.md"))
         t = read(f)
         if t is None:
-            warn.append(f"no {f}: line {line!r} has no focus yet. Create it from the template.")
+            warn.append(f"no {f}: line {line!r} has no focus yet. Open it with focus.py bind.")
         else:
             if state(t) != "active":
                 warn.append(f"line {line!r} is {state(t) or 'without state'}, not active.")
+            if objective_quote(t) in ("", PLACEHOLDER):
+                warn.append(f"line {line!r} has no objective yet: ask the PO and write their "
+                            "words as D-1 before any ticket.")
             parts.append(anchor_text(f, t))
     return "\n\n".join([f"[focus] {w}" for w in warn] + parts)
+
+
+def bind(root: str, line: str, session: str, now: datetime.datetime | None = None) -> str:
+    """Bind a chat to a line: create lines/<line>.md, or add the chat to an existing line."""
+    if not LINE_NAME.match(line):
+        raise ValueError(f"line name {line!r}: use lowercase letters, digits and dashes")
+    now = now or datetime.datetime.now()
+    stamp = now.strftime("%Y-%m-%d %H:%M")
+    bound = line_for_session(root, session)
+    if bound and bound != line:
+        raise ValueError(f"session {session} is already bound to line {bound!r}")
+    path = os.path.join(root, "lines", f"{line}.md")
+    text = read(path)
+    note = ""
+    if text is None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        text = LINE_SKELETON.format(name=line, session=session, placeholder=PLACEHOLDER,
+                                    date=now.strftime("%Y-%m-%d"), now=stamp)
+        note = f"[focus] opened line {line!r} for this chat."
+    elif session not in sessions_of(text):
+        before = sessions_of(text)
+        value = ", ".join(before + [session])
+        if header(text, "Sessions") is None:
+            text = re.sub(r"^(\*\*State:\*\*.*)$", rf"\1\n**Sessions:** {value}", text,
+                          count=1, flags=re.M)
+        else:
+            text = re.sub(r"^\*\*Sessions:\*\*.*$", f"**Sessions:** {value}", text, count=1,
+                          flags=re.M)
+        entry = (f"### {stamp} · — · chat {session} joined\n"
+                 "- Objective: unchanged (D-1)\n")
+        text = add_entry(text, entry)
+        note = f"[focus] this chat joined line {line!r}."
+        if before:
+            note += (f" Earlier chats on it: {', '.join(before)}. If one is still open, close it:"
+                     " a line has one writer.")
+    else:
+        note = f"[focus] this chat is already on line {line!r}."
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return note + "\n\n" + anchor(root, line)
+
+
+def add_entry(text: str, entry: str) -> str:
+    """Append a log entry at the end of the "## Log" section."""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if LOG_HEADING.match(l)), None)
+    if start is None:
+        return text.rstrip("\n") + "\n\n## Log\n\n" + entry
+    end = next((i for i in range(start + 1, len(lines)) if SECTION.match(lines[i])), len(lines))
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    return "".join(lines[:end]) + "\n" + entry + "\n" + "".join(lines[end:]).lstrip("\n")
 
 
 def directives(lines: list[str]) -> list[Directive]:
@@ -229,7 +370,8 @@ def check(text: str, max_anchor_lines: int) -> list[str]:
     return flags
 
 
-def check_dir(root: str, max_anchor_lines: int) -> list[str]:
+def check_dir(root: str, max_anchor_lines: int, stale_days: int = 14,
+              today: datetime.date | None = None) -> list[str]:
     """check() on every focus file under root, plus what only shows across files."""
     files = ([os.path.join(root, "PROJECT.md")] if os.path.exists(os.path.join(root, "PROJECT.md"))
              else []) + sorted(glob.glob(os.path.join(root, "epics", "*.md"))
@@ -251,6 +393,20 @@ def check_dir(root: str, max_anchor_lines: int) -> list[str]:
                 and state(t) == "active" and name in lines_of(t)]
         if len(busy) > 1:
             flags.append(f"{f}: {len(busy)} active epics involve this line: " + ", ".join(busy))
+    today = today or datetime.date.today()
+    owner: dict[str, str] = {}
+    for name, f in line_files(root).items():
+        t = texts.get(f, "")
+        for sid in sessions_of(t):
+            if sid in owner:
+                flags.append(f"{f}: session {sid} is also bound to line {owner[sid]!r}")
+            owner.setdefault(sid, name)
+        last = last_entry_date(t)
+        if state(t) == "active" and last:
+            age = (today - datetime.date.fromisoformat(last)).days
+            if age > stale_days:
+                flags.append(f"{f}: active, but its last entry is {age} days old: ask the PO "
+                             "whether to pause or close it")
     return flags
 
 
@@ -261,16 +417,39 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("path", help="the focus folder (PROJECT.md, epics/, lines/), or one file")
     a.add_argument("--line", default=os.environ.get("PM_LINE") or None,
                    help="the line of work this PM runs (default: $PM_LINE)")
+    a.add_argument("--session", help="the chat's session id: picks the line bound to it")
+    h = sub.add_parser("hook", help="anchor for a session-start hook: reads the session id "
+                                    "from the hook's JSON on stdin")
+    h.add_argument("path", help="the focus folder")
+    b = sub.add_parser("bind", help="bind a chat to a line: open the line, or join it")
+    b.add_argument("path", help="the focus folder")
+    b.add_argument("line", help="the line's name: lowercase letters, digits and dashes")
+    b.add_argument("--session", required=True, help="the chat's session id")
     c = sub.add_parser("check", help="flag what lets the objective drift")
     c.add_argument("file", help="the focus folder, or one file")
     c.add_argument("--max-anchor-lines", type=int, default=60)
+    c.add_argument("--stale-days", type=int, default=14)
     args = ap.parse_args(argv)
 
     if args.cmd == "anchor":
-        print(anchor(args.path, args.line or None))
+        print(anchor(args.path, args.line or None, args.session))
+        return 0
+    if args.cmd == "hook":
+        try:
+            session = json.load(sys.stdin).get("session_id") or None
+        except (ValueError, AttributeError):
+            session = None
+        print(anchor(args.path, os.environ.get("PM_LINE") or None, session))
+        return 0
+    if args.cmd == "bind":
+        try:
+            print(bind(args.path, args.line, args.session))
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
         return 0
     if os.path.isdir(args.file):
-        flags = check_dir(args.file, args.max_anchor_lines)
+        flags = check_dir(args.file, args.max_anchor_lines, args.stale_days)
     else:
         text = read(args.file)
         if text is None:
