@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.5.0
+version: 0.6.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -115,8 +115,10 @@ pending → in progress → reported → closed
     - Each PM re-reads its anchors (project, its line's active epic, its line) at the start of every
       session, right after every compaction, and before every ticket or verdict. Its own summary of
       the conversation is not the anchor.
+    - One chat runs one line, bound by its session id (`focus.py bind`); a new chat inherits the
+      project and opens a line or joins one. Chats have no cap: each loads only its own anchors.
     - A line file has one writer, its PM. A closed epic keeps its file as history and is never
-      loaded again; the line file is the thread that runs across epics.
+      loaded again; the line file is the thread that runs across epics and chats.
     - Why: a nuance given at the end of a turn survives a compaction better than the objective given
       at the start, so the PM takes it as the new direction, and the drift compounds with every
       compaction. Read `references/focus-log.md`.

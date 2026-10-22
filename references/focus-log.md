@@ -102,7 +102,8 @@ focus/
     payments.md       Level: epic      State: closed (2026-10-14)   never loaded again
     notifications.md  Level: epic      State: active   Lines: ui, data
   lines/
-    ui.md             Level: line      the UI PM's thread: mandate, directives, turn log
+    ui.md             Level: line      the UI PM's thread: mandate, directives, turn log,
+                                       Sessions: the chats that ran it
     data.md           Level: line      the DATA PM's thread
 ```
 
@@ -153,34 +154,75 @@ line.** A message goes higher only when the PO says so, or confirms it when aske
    the PO wants one to outlive it, it is moved, in the PO's words, to the line or project file.
 5. **Close a line** only when the PO dissolves it: last log entry, `**State:** closed (date)`.
 
+## One chat, one line
+
+Lines of work are not a fixed list. The PO opens a chat whenever a new thread of work starts, and
+can keep any number of chats open in parallel, each with its own line. Every chat inherits the
+project and runs exactly one line; the line file is that thread's memory, so it outlives the chat.
+
+- **The chat is bound to its line by its session id.** A line file lists the chats that ran it in
+  `**Sessions:**`. The session-start hook reads the chat's session id and loads that line, so
+  nothing has to be set by hand before opening a chat.
+- **A new chat has no line yet.** The hook gives it the project anchor and an index of the active
+  lines (name, date of the last entry, objective), and the PM's first act is to ask the PO: «a new
+  line, or one of these?». Then it binds the chat:
+
+  ```bash
+  python3 scripts/focus.py bind focus/ notifications-ui --session <id>
+  ```
+
+  - A new name opens `lines/<name>.md` with this chat in `**Sessions:**` and an empty objective.
+    The PM writes the PO's words as D-1 before anything else; until then every re-anchor warns.
+  - An existing name adds the chat to `**Sessions:**` with a log entry, so a thread can continue in
+    a fresh chat after the old one got too long. The old chat is closed: **a line has one writer**,
+    so two open chats on one line is the failure to avoid, and `bind` names the earlier chats to
+    make that visible.
+  - A chat runs one line. Binding it to a second one is refused; work for another line goes to
+    another chat.
+- **The number of chats has no cap, the context does.** Each chat loads the project, its line's
+  active epic, and its line: the same three anchors whether there are 2 lines or 40. Only the index
+  a new chat sees grows, at one line per active line.
+- **Lines go stale, so close them.** A line whose chat was abandoned stays `active` forever unless
+  someone closes it. `focus.py check focus/` flags active lines whose last entry is older than
+  `--stale-days` (14 by default), and the PM asks the PO whether to pause or close each one. A
+  closed line drops out of the index; its file stays as history.
+
 ## Make the re-read mechanical where the runtime allows it
 
 «Re-read after compaction» is a rule the PM forgets for the same reason it forgets the objective.
 Where the runtime can inject text into the context, let it:
 
 - **Claude Code:** a `SessionStart` hook runs on startup, resume, and after every compaction
-  (`matcher` `compact`), so its output enters the context right after the summary.
-  `scripts/focus.py anchor focus/` prints, in this order, the project anchor, the anchors of the
-  active epics that list the PM's line, and the line's own anchor (each anchor is everything above
-  `## Log`). The line comes from `PM_LINE`: launch each PM with its own, for example
-  `PM_LINE=ui claude`. With a single active line it is picked by itself. Missing files, no active
-  epic, or a line in two active epics come back as `[focus]` warnings, never as a failure, so the
-  hook never blocks a session. The hook never needs editing when an epic closes and the next opens.
-  In the project's `.claude/settings.json` (adjust both paths):
+  (`matcher` `compact`), so its output enters the context right after the summary. It gets the
+  chat's `session_id` as JSON on stdin, and `scripts/focus.py hook focus/` reads it. For a chat
+  bound to a line, it prints in this order the project anchor, the anchors of the active epics that
+  list the line, and the line's own anchor (each anchor is everything above `## Log`). For a chat
+  bound to no line, it prints the project anchor and the index of active lines, with the order to
+  bind first. Missing files, a line without an objective, or a line in two active epics come back
+  as `[focus]` warnings, never as a failure, so the hook never blocks a session. The hook never
+  needs editing when a line or an epic opens or closes. In the project's `.claude/settings.json`
+  (adjust both paths):
 
   ```json
   {
     "hooks": {
       "SessionStart": [{
-        "matcher": "startup|resume|compact",
+        "matcher": "startup|resume|compact|clear",
         "hooks": [{ "type": "command",
-                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py anchor \"$CLAUDE_PROJECT_DIR/focus\"" }]
+                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }]
       }]
     }
   }
   ```
-- **Other runtimes:** use their pre-compaction or session-start hook if they have one. If not, put
-  the paths of the PM's three files in its system prompt or project instructions with the order to
-  read them first. That instruction survives compaction because it is not part of the conversation.
+
+  `PM_LINE=<line>` in the environment overrides the binding, for a PM launched by a script.
+  `/clear` starts a new conversation, which comes back as a chat with no line: bind it again to
+  the same line to continue.
+- **Other runtimes:** use their pre-compaction or session-start hook if they have one, passing the
+  chat's id to `focus.py anchor focus/ --session <id>`. If there is none, put in the PM's system
+  prompt or project instructions the order to run `focus.py anchor focus/ --line <line>` first and
+  to read what it prints. That instruction survives compaction because it is not part of the
+  conversation.
 - **Lint:** `scripts/focus.py check focus/` checks every file plus what only shows across files: an
-  epic naming a line with no file, a line in two active epics.
+  epic naming a line with no file, a line in two active epics, a chat bound to two lines, and stale
+  active lines.
