@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Print and check the PM focus files (see references/focus-log.md).
 
-    focus.py hook focus/ < hook.json    what a session-start hook prints (session id on stdin)
+    focus.py hook focus/ < event.json   for Claude Code hooks: SessionStart, UserPromptSubmit,
+                                        SessionEnd (the event's JSON on stdin)
     focus.py bind focus/ ui --session S open line "ui" for chat S, or add S to it
     focus.py anchor focus/ --line ui    the anchors the PM of line "ui" must hold
     focus.py check focus/               flag what lets an objective drift
@@ -18,9 +19,11 @@ The focus folder holds one file per level, all from templates/FOCUS.md:
 the active epics that name the line in their "**Lines:**", and the line's own anchor (each anchor is
 everything above "## Log"). The line comes from --line or $PM_LINE, else from the line whose
 "**Sessions:**" lists the chat's session id. A chat on no line gets the project anchor and the index
-of active lines, and the PM binds it with `bind` before anything else. `hook` is `anchor` with the
-session id read from the JSON a Claude Code hook gets on stdin. Problems come back as "[focus]"
-warnings with exit 0, so the hook never blocks a session.
+of active lines, and the PM binds it with `bind` before anything else. `hook` drives this from
+Claude Code's hooks: it loads a bound chat's anchors, keeps the line across /clear, and keeps
+one-shot dev sessions (first prompt "TO: ...", or FOCUS_ROLE=dev) away from the focus files. See
+hook() for each event. Problems come back as "[focus]" warnings with exit 0, so the hook never
+blocks a session.
 
 `check` flags, per file:
   * a missing or invalid "**Level:**" (project, epic, line) or "**State:**" (active, paused,
@@ -44,7 +47,9 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 from dataclasses import dataclass
 
 KINDS = {"objective", "constraint", "nuance", "decision"}
@@ -60,6 +65,12 @@ LINE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 QUOTE = re.compile(r"«([^»]*)»")
 ENTRY_DATE = re.compile(r"^###\s+(\d{4}-\d{2}-\d{2})")
 PLACEHOLDER = "<the PO's exact words>"
+DEV_PROMPT = re.compile(r"^\s*TO:", re.I)
+SHELLS = {"sh", "bash", "zsh", "dash", "fish", "env", "python", "python3", "timeout"}
+HANDOFF_TTL = 600  # seconds between the end of a chat on /clear and the start of its successor
+DEV_NOTICE = """[focus] This session is a one-shot dev (its prompt starts with TO:). The ticket is your only
+spec. Never read, bind, or write anything under {root}: lines of work and their focus files belong
+to the PMs. Write your report, set your row to reported, and stop."""
 LINE_SKELETON = """# Focus of line {name}
 
 **Level:** line
@@ -243,10 +254,17 @@ def anchor(root: str, line: str | None = None, session: str | None = None) -> st
     return "\n\n".join([f"[focus] {w}" for w in warn] + parts)
 
 
-def bind(root: str, line: str, session: str, now: datetime.datetime | None = None) -> str:
-    """Bind a chat to a line: create lines/<line>.md, or add the chat to an existing line."""
+def bind(root: str, line: str, session: str, now: datetime.datetime | None = None,
+         after: str | None = None) -> str:
+    """Bind a chat to a line: create lines/<line>.md, or add the chat to an existing line.
+
+    `after` is the session this one replaces after /clear: the same chat, so no warning about
+    earlier chats.
+    """
     if not LINE_NAME.match(line):
         raise ValueError(f"line name {line!r}: use lowercase letters, digits and dashes")
+    if os.environ.get("FOCUS_ROLE") == "dev" or os.path.exists(state_path(root, f"dev-{session}")):
+        raise ValueError(f"session {session} is a one-shot dev: devs never open or join a line")
     now = now or datetime.datetime.now()
     stamp = now.strftime("%Y-%m-%d %H:%M")
     bound = line_for_session(root, session)
@@ -269,11 +287,13 @@ def bind(root: str, line: str, session: str, now: datetime.datetime | None = Non
         else:
             text = re.sub(r"^\*\*Sessions:\*\*.*$", f"**Sessions:** {value}", text, count=1,
                           flags=re.M)
-        entry = (f"### {stamp} · — · chat {session} joined\n"
+        what = f"continues {after} after /clear" if after else "joined"
+        entry = (f"### {stamp} · — · chat {session} {what}\n"
                  "- Objective: unchanged (D-1)\n")
         text = add_entry(text, entry)
-        note = f"[focus] this chat joined line {line!r}."
-        if before:
+        note = (f"[focus] this chat continues line {line!r} after /clear (was {after})."
+                if after else f"[focus] this chat joined line {line!r}.")
+        if before and not after:
             note += (f" Earlier chats on it: {', '.join(before)}. If one is still open, close it:"
                      " a line has one writer.")
     else:
@@ -281,6 +301,116 @@ def bind(root: str, line: str, session: str, now: datetime.datetime | None = Non
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     return note + "\n\n" + anchor(root, line)
+
+
+def state_path(root: str, name: str) -> str:
+    """A file under <root>/.state/: machine state, never committed."""
+    return os.path.join(root, ".state", name)
+
+
+def write_state(root: str, name: str, data: dict) -> None:
+    os.makedirs(os.path.join(root, ".state"), exist_ok=True)
+    ignore = state_path(root, ".gitignore")
+    if not os.path.exists(ignore):
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("*\n")
+    with open(state_path(root, name), "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+def parent(pid: int) -> tuple[int, str]:
+    """(parent pid, command name of pid). Linux /proc, else ps (macOS)."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as f:
+            stat = f.read()
+        name = stat[stat.index("(") + 1:stat.rindex(")")]
+        return int(stat[stat.rindex(")") + 2:].split()[1]), name
+    except (OSError, ValueError, IndexError):
+        out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                             capture_output=True, text=True, check=False).stdout.split(None, 1)
+        if len(out) < 2:
+            return 0, ""
+        return int(out[0]), os.path.basename(out[1].strip())
+
+
+def agent_pid() -> int:
+    """The pid of the agent process that ran this hook: the first ancestor that is not a shell.
+
+    The same chat keeps its process across /clear while its session id changes, so this pairs
+    the SessionEnd of the old session with the SessionStart of the new one.
+    """
+    pid = os.getppid()
+    for _ in range(8):
+        ppid, name = parent(pid)
+        if name and name not in SHELLS:
+            return pid
+        if ppid <= 1:
+            break
+        pid = ppid
+    return os.getppid()
+
+
+def hook(root: str, event: dict, now: float | None = None, agent: int | None = None) -> str:
+    """What a Claude Code hook prints, by event. Never raises: a hook must not block a session.
+
+    SessionStart       a bound chat gets its anchors; after /clear the new session takes over the
+                       line of the old one; an unbound chat gets nothing yet (its first prompt
+                       says whether it is a PM or a dev).
+    UserPromptSubmit   an unbound chat: a prompt starting with TO: is a one-shot dev, which is
+                       recorded and told to keep away from the focus files; any other prompt is a
+                       PM, which gets the project and the index of lines until it binds.
+    SessionEnd         on /clear, leave a handoff so the next session of the same chat keeps the
+                       line.
+    """
+    now = time.time() if now is None else now
+    name = event.get("hook_event_name") or "SessionStart"
+    session = event.get("session_id") or None
+    forced = os.environ.get("PM_LINE") or None
+    try:
+        agent = agent or agent_pid()
+    except (OSError, ValueError):
+        agent = 0
+    if os.environ.get("FOCUS_ROLE") == "dev" and session:
+        write_state(root, f"dev-{session}", {"since": now})
+    if session and os.path.exists(state_path(root, f"dev-{session}")):
+        return DEV_NOTICE.format(root=root) if name != "SessionEnd" else ""
+
+    if name == "SessionEnd":
+        line = session and line_for_session(root, session)
+        if event.get("reason") == "clear" and line:
+            write_state(root, f"clear-{agent}", {"line": line, "session": session, "time": now})
+        return ""
+
+    bound = forced or (session and line_for_session(root, session))
+    if name == "SessionStart":
+        if bound:
+            return anchor(root, bound, session)
+        if event.get("source") == "clear" and session:
+            handoff = state_path(root, f"clear-{agent}")
+            data = None
+            try:
+                with open(handoff, encoding="utf-8") as f:
+                    data = json.load(f)
+                os.remove(handoff)
+            except (OSError, ValueError):
+                pass
+            if data and now - data.get("time", 0) <= HANDOFF_TTL:
+                try:
+                    return bind(root, data["line"], session, after=data.get("session"))
+                except (ValueError, KeyError, OSError) as e:
+                    return f"[focus] could not keep the line after /clear: {e}"
+        if not session:
+            return anchor(root, None, None)
+        return ""
+
+    if name == "UserPromptSubmit":
+        if bound:
+            return ""
+        if DEV_PROMPT.match(event.get("prompt") or ""):
+            write_state(root, f"dev-{session}", {"since": now})
+            return DEV_NOTICE.format(root=root)
+        return anchor(root, None, session)
+    return ""
 
 
 def add_entry(text: str, entry: str) -> str:
@@ -418,8 +548,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--line", default=os.environ.get("PM_LINE") or None,
                    help="the line of work this PM runs (default: $PM_LINE)")
     a.add_argument("--session", help="the chat's session id: picks the line bound to it")
-    h = sub.add_parser("hook", help="anchor for a session-start hook: reads the session id "
-                                    "from the hook's JSON on stdin")
+    h = sub.add_parser("hook", help="for Claude Code hooks (SessionStart, UserPromptSubmit, "
+                                    "SessionEnd): reads the event's JSON on stdin")
     h.add_argument("path", help="the focus folder")
     b = sub.add_parser("bind", help="bind a chat to a line: open the line, or join it")
     b.add_argument("path", help="the focus folder")
@@ -436,10 +566,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "hook":
         try:
-            session = json.load(sys.stdin).get("session_id") or None
-        except (ValueError, AttributeError):
-            session = None
-        print(anchor(args.path, os.environ.get("PM_LINE") or None, session))
+            event = json.load(sys.stdin)
+            event = event if isinstance(event, dict) else {}
+        except ValueError:
+            event = {}
+        try:
+            out = hook(args.path, event)
+        except Exception as e:  # a hook must never block the session
+            out = f"[focus] hook error: {e}"
+        if out:
+            print(out)
         return 0
     if args.cmd == "bind":
         try:

@@ -163,9 +163,9 @@ project and runs exactly one line; the line file is that thread's memory, so it 
 - **The chat is bound to its line by its session id.** A line file lists the chats that ran it in
   `**Sessions:**`. The session-start hook reads the chat's session id and loads that line, so
   nothing has to be set by hand before opening a chat.
-- **A new chat has no line yet.** The hook gives it the project anchor and an index of the active
-  lines (name, date of the last entry, objective), and the PM's first act is to ask the PO: «a new
-  line, or one of these?». Then it binds the chat:
+- **A new chat has no line yet.** On its first prompt the hook gives it the project anchor and an
+  index of the active lines (name, date of the last entry, objective), and the PM's first act is
+  to ask the PO: «a new line, or one of these?». Then it binds the chat:
 
   ```bash
   python3 scripts/focus.py bind focus/ notifications-ui --session <id>
@@ -182,42 +182,71 @@ project and runs exactly one line; the line file is that thread's memory, so it 
 - **The number of chats has no cap, the context does.** Each chat loads the project, its line's
   active epic, and its line: the same three anchors whether there are 2 lines or 40. Only the index
   a new chat sees grows, at one line per active line.
+- **`/clear` keeps the line.** `/clear` starts a new conversation with a new session id in the same
+  chat. The hook pairs the two: when the old session ends with reason `clear` it leaves a handoff
+  keyed by the agent's process, and the next session of that same process takes the line over
+  (`continues <old> after /clear` in the log). Another chat clearing at the same moment has another
+  process, so it never takes this line. A handoff older than 10 minutes is ignored.
 - **Lines go stale, so close them.** A line whose chat was abandoned stays `active` forever unless
   someone closes it. `focus.py check focus/` flags active lines whose last entry is older than
   `--stale-days` (14 by default), and the PM asks the PO whether to pause or close each one. A
   closed line drops out of the index; its file stays as history.
+
+## Dev sessions never open lines
+
+Lines are the PMs' threads. Dev sessions are one-shot (rule 8): one ticket, one report, stop. If a
+dev session ran in the same project with the same hooks and were treated as a new chat, it would be
+told to open a line, and every ticket would leave an orphan thread behind. So the hook tells the
+two apart before anything is loaded:
+
+- **A dev prompt starts with `TO: <agent>`** (rule 5). An unbound chat whose first prompt starts
+  with `TO:` is recorded as a dev session (`.state/dev-<id>`), gets a short notice («the ticket is
+  your only spec; never read, bind, or write the focus files») instead of the project and the
+  index, and keeps getting that notice on every later event. `bind` refuses a dev session.
+- **`FOCUS_ROLE=dev`** in the environment does the same from the start, for devs launched by a
+  script or a dispatcher.
+- **Devs get no anchors.** What a dev needs from the objective is already in its ticket, written by
+  the PM; the focus files are pointers for the PM, not payload for the dev (`parent-focus.md`).
+- **Other runtimes and board workers** (opencode, a kanban dispatcher) do not run these hooks at
+  all, so they never see the focus files. Only the PM reads and writes them.
+- **Subagents of a PM chat** (delegated children) share nothing with the focus files either:
+  children return `{pointer, summary}`, and only the PM writes, exactly as with the board.
 
 ## Make the re-read mechanical where the runtime allows it
 
 «Re-read after compaction» is a rule the PM forgets for the same reason it forgets the objective.
 Where the runtime can inject text into the context, let it:
 
-- **Claude Code:** a `SessionStart` hook runs on startup, resume, and after every compaction
-  (`matcher` `compact`), so its output enters the context right after the summary. It gets the
-  chat's `session_id` as JSON on stdin, and `scripts/focus.py hook focus/` reads it. For a chat
-  bound to a line, it prints in this order the project anchor, the anchors of the active epics that
-  list the line, and the line's own anchor (each anchor is everything above `## Log`). For a chat
-  bound to no line, it prints the project anchor and the index of active lines, with the order to
-  bind first. Missing files, a line without an objective, or a line in two active epics come back
-  as `[focus]` warnings, never as a failure, so the hook never blocks a session. The hook never
-  needs editing when a line or an epic opens or closes. In the project's `.claude/settings.json`
-  (adjust both paths):
+- **Claude Code:** one command, `scripts/focus.py hook focus/`, on three events. It reads the
+  event's JSON on stdin (`session_id`, and `source`, `prompt` or `reason`) and acts by event:
+  - `SessionStart` (startup, resume, every compaction, `/clear`): its output enters the context
+    right after the summary. A chat bound to a line gets, in this order, the project anchor, the
+    anchors of the active epics that list the line, and the line's own anchor (each anchor is
+    everything above `## Log`). After `/clear`, the new session takes over the line first.
+  - `UserPromptSubmit`: for a chat on no line, the first prompt decides. `TO:` means a dev (see
+    above); anything else means a PM, which gets the project anchor and the index of lines, with
+    the order to bind first, on every prompt until it binds. A bound chat gets nothing here.
+  - `SessionEnd`: on `/clear`, leaves the handoff for the next session of the same chat.
+
+  Missing files, a line without an objective, or a line in two active epics come back as `[focus]`
+  warnings, never as a failure, so the hook never blocks a session. The hook never needs editing
+  when a line or an epic opens or closes. Its machine state lives in `focus/.state/`, which ignores
+  itself in git. In the project's `.claude/settings.json` (adjust both paths in all three):
 
   ```json
   {
     "hooks": {
-      "SessionStart": [{
-        "matcher": "startup|resume|compact|clear",
-        "hooks": [{ "type": "command",
-                    "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }]
-      }]
+      "SessionStart": [{ "hooks": [{ "type": "command",
+        "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }] }],
+      "UserPromptSubmit": [{ "hooks": [{ "type": "command",
+        "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }] }],
+      "SessionEnd": [{ "hooks": [{ "type": "command",
+        "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }] }]
     }
   }
   ```
 
   `PM_LINE=<line>` in the environment overrides the binding, for a PM launched by a script.
-  `/clear` starts a new conversation, which comes back as a chat with no line: bind it again to
-  the same line to continue.
 - **Other runtimes:** use their pre-compaction or session-start hook if they have one, passing the
   chat's id to `focus.py anchor focus/ --session <id>`. If there is none, put in the PM's system
   prompt or project instructions the order to run `focus.py anchor focus/ --line <line>` first and

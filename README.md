@@ -28,8 +28,9 @@ codebase, and it records what was needed to trust their work.
   one PM per line) hold each objective in the PO's own words, the directives in force, and a short
   log per turn. Only the PO changes an objective, so a late nuance can't silently replace it when a
   PM's context is compacted. Each chat is bound to one line (`scripts/focus.py bind`), and a
-  session-start hook (`scripts/focus.py hook focus/`) gives it its project, its active epic, and
-  its line after every compaction; a new chat gets the project and picks or opens its line.
+  hook (`scripts/focus.py hook focus/`) gives it its project, its active epic, and its line after
+  every compaction and across `/clear`; a new chat gets the project and picks or opens its line,
+  and one-shot dev sessions (prompt `TO: ...`) are kept out of the focus files.
   `scripts/focus.py check focus/` flags an objective that changed without the PO.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
 
