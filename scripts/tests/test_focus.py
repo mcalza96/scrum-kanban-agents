@@ -316,5 +316,106 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(code, 0)
 
 
+class HookTest(unittest.TestCase):
+    """The Claude Code hook: /clear keeps the line, dev sessions never touch the focus files."""
+
+    NOW = datetime.datetime(2026, 10, 22, 9, 30)
+    T = 1_000_000.0
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        with open(os.path.join(self.root, "PROJECT.md"), "w") as f:
+            f.write(GOOD.replace("**Level:** line", "**Level:** project")
+                    .replace("ship A", "project goal"))
+        focus.bind(self.root, "ui", "old", self.NOW)
+        self.env = {k: os.environ.pop(k) for k in ("PM_LINE", "FOCUS_ROLE") if k in os.environ}
+
+    def tearDown(self):
+        os.environ.pop("FOCUS_ROLE", None)
+        os.environ.update(self.env)
+        self.tmp.cleanup()
+
+    def event(self, name, session, agent=4242, t=None, **kw):
+        return focus.hook(self.root, dict(hook_event_name=name, session_id=session, **kw),
+                          now=self.T if t is None else t, agent=agent)
+
+    def sessions(self):
+        with open(os.path.join(self.root, "lines", "ui.md")) as f:
+            return focus.sessions_of(f.read())
+
+    def test_clear_keeps_the_line(self):
+        self.assertEqual(self.event("SessionEnd", "old", reason="clear"), "")
+        out = self.event("SessionStart", "new", t=self.T + 2, source="clear")
+        self.assertTrue(out.startswith("[focus] this chat continues line 'ui' after /clear"), out)
+        self.assertNotIn("Earlier chats", out)
+        self.assertIn("# Focus of line ui", out)
+        self.assertEqual(self.sessions(), ["old", "new"])
+        self.assertFalse(os.path.exists(focus.state_path(self.root, "clear-4242")))
+
+    def test_clear_from_another_chat_is_not_taken(self):
+        self.event("SessionEnd", "old", agent=1, reason="clear")
+        self.assertEqual(self.event("SessionStart", "new", agent=2, source="clear"), "")
+        self.assertEqual(self.sessions(), ["old"])
+
+    def test_stale_handoff_is_ignored(self):
+        self.event("SessionEnd", "old", reason="clear")
+        out = self.event("SessionStart", "new", t=self.T + focus.HANDOFF_TTL + 1, source="clear")
+        self.assertEqual(out, "")
+        self.assertEqual(self.sessions(), ["old"])
+
+    def test_exit_leaves_no_handoff(self):
+        self.event("SessionEnd", "old", reason="prompt_input_exit")
+        self.assertFalse(os.path.exists(focus.state_path(self.root, "clear-4242")))
+
+    def test_bound_chat_gets_anchors_once(self):
+        self.assertIn("# Focus of line ui", self.event("SessionStart", "old", source="compact"))
+        self.assertEqual(self.event("UserPromptSubmit", "old", prompt="hola"), "")
+
+    def test_unbound_pm_chat_is_asked_on_its_first_prompt(self):
+        self.assertEqual(self.event("SessionStart", "pm", source="startup"), "")
+        out = self.event("UserPromptSubmit", "pm", prompt="quiero una línea para pagos")
+        self.assertIn("has no line of work yet", out)
+        self.assertIn("- ui · last entry", out)
+
+    def test_dev_session_is_recorded_and_kept_out(self):
+        self.assertEqual(self.event("SessionStart", "dev1", source="startup"), "")
+        out = self.event("UserPromptSubmit", "dev1", prompt="TO: dev-ui\nTicket T-07 ...")
+        self.assertIn("one-shot dev", out)
+        self.assertNotIn("project goal", out)
+        self.assertNotIn("bind", out.split("Never")[0])
+        with self.assertRaises(ValueError):
+            focus.bind(self.root, "ui", "dev1", self.NOW)
+        self.assertIn("one-shot dev", self.event("SessionStart", "dev1", source="compact"))
+        self.assertIn("one-shot dev", self.event("UserPromptSubmit", "dev1", prompt="y además"))
+        self.assertEqual(self.sessions(), ["old"])
+
+    def test_focus_role_dev_env(self):
+        os.environ["FOCUS_ROLE"] = "dev"
+        self.assertIn("one-shot dev", self.event("SessionStart", "dev2", source="startup"))
+        with self.assertRaises(ValueError):
+            focus.bind(self.root, "data", "dev2", self.NOW)
+
+    def test_state_dir_is_ignored_by_git(self):
+        self.event("SessionEnd", "old", reason="clear")
+        with open(focus.state_path(self.root, ".gitignore")) as f:
+            self.assertEqual(f.read(), "*\n")
+
+    def test_agent_pid_skips_shells(self):
+        tree = {100: (50, "sh"), 50: (10, "claude"), 10: (1, "launchd")}
+        orig_parent, orig_getppid = focus.parent, os.getppid
+        focus.parent = lambda pid: tree.get(pid, (0, ""))
+        os.getppid = lambda: 100
+        try:
+            self.assertEqual(focus.agent_pid(), 50)
+        finally:
+            focus.parent, os.getppid = orig_parent, orig_getppid
+
+    def test_real_parent_lookup(self):
+        ppid, name = focus.parent(os.getpid())
+        self.assertEqual(ppid, os.getppid())
+        self.assertTrue(name)
+
+
 if __name__ == "__main__":
     unittest.main()
