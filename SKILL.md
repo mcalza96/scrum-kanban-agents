@@ -140,6 +140,11 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
    deterministic gate can replace the verifier.
 8. The report ends with the logbook, the session was one-shot, and the PM ingested its trace and
    recorded the verdict.
+9. Whatever the ticket created outside the repo's tracked files is gone: worktrees, dev servers,
+   ports, per-ticket build dirs (`.next-<ticket>`). Anything left alive on purpose is named in the
+   report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`).
+   Why: in the project this skill comes from, 14 worktrees of closed tickets held about 8 GB, and
+   nothing said whose they were.
 
 A `completed` status without an artifact is a **delivery failure**, not a success.
 
@@ -150,7 +155,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | Refinement | Split tickets into parts with `STOP` points where the human must decide | Before starting |
 | Planning | Tickets, with lanes (`references/file-mode.md`) and dependencies | Start of a phase |
 | Plan attack | Four blind attackers (figures, feasibility, logic and gates, scope) attack the plan; the PM re-verifies each finding, writes v2, and runs a second round if the design changed (`references/plan-attack.md`) | After planning, before any card is assigned, **only for complex work** |
-| Daily | Board plus the dev's heartbeat or session log | When reporting to the human |
+| Daily | Board plus the dev's heartbeat or session log, `inbox.py check`, and `stale_worktrees.py` | When reporting to the human |
 | Review | PM verification and verdict | Each report |
 | Retro | Read the trace views (`v_outliers`, `v_return_cause`, `v_one_shot`) and add or remove one concrete rule | End of a phase |
 
@@ -191,5 +196,6 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
+| `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind: removable, dirty, ahead, or in use |
 | `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
 | `adapters/` | Tool-specific notes and helpers: `opencode.md`, `opencode/inbox.js`, `hermes-kanban/` |
