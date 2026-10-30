@@ -77,7 +77,7 @@ python3 $T --data $D report --view v_outliers       # also v_ticket, v_agent, v_
 ## Layout
 
 ```
-SKILL.md          the skill: roles, lifecycle, the ten rules, DoD, metrics
+SKILL.md          the skill: roles, lifecycle, the eleven rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
 templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
 scripts/          check_report.py, focus.py, trace/ (tracer.py, schema.sql, sources/), tests
