@@ -29,6 +29,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
@@ -100,7 +101,12 @@ def addressee(db: sqlite3.Connection, sid: str) -> str | None:
     row = db.execute("select data from session_message where session_id = ? and type = 'user'"
                      " order by time_created limit 1", (sid,)).fetchone()
     m = re.search(r"TO:\s*([\w.-]+)", row[0]) if row else None
-    return m.group(1) if m else None
+    return plain(m.group(1)) if m else None
+
+
+def plain(name: str) -> str:
+    """`PM-auditoría` and `PM-auditoria` are the same PM: prompts carry the accent, mailboxes don't."""
+    return "".join(c for c in unicodedata.normalize("NFD", name) if unicodedata.category(c) != "Mn")
 
 
 def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
@@ -113,7 +119,7 @@ def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
         " where m.type = 'assistant' and s.parent_id is null and s.time_archived is null"
         " and m.data like ? order by m.time_created desc limit 500", (f"%inbox.py read %{pm}%",))
     for sid, cwd, data in rows:
-        if addressee(db, sid) not in (None, pm):
+        if addressee(db, sid) not in (None, plain(pm)):
             continue  # another PM read this mailbox to check on it; it is not pm's session
         for cmd in commands(data):
             for path in read.findall(cmd):

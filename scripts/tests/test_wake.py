@@ -74,6 +74,12 @@ class WakeTest(unittest.TestCase):
         self.wake()
         self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
 
+    def test_accent_in_the_prompt_is_the_same_pm(self):
+        self.session("ses_aud", f"inbox.py read {self.root} PM-auditoria", 1, to="PM-auditoría")
+        inbox.send(self.root, "PM-auditoria", "PO", "MON-2")
+        wake.run(self.root, "PM-auditoria", send=self.send, wait=0, poll=0)
+        self.assertEqual([s for s, _ in self.sent], ["ses_aud"])
+
     def test_wakes_again_only_for_new_ids(self):
         self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1)
         inbox.send(self.root, "PM-ui", "PO", "one")
