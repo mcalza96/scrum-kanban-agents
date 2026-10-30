@@ -100,7 +100,11 @@ def addressee(db: sqlite3.Connection, sid: str) -> str | None:
     """The PM a session was started for: the `TO: <pm>` that opens its first user prompt."""
     row = db.execute("select data from session_message where session_id = ? and type = 'user'"
                      " order by time_created limit 1", (sid,)).fetchone()
-    m = re.search(r"TO:\s*([\w.-]+)", row[0]) if row else None
+    try:
+        text = json.dumps(json.loads(row[0]), ensure_ascii=False) if row else ""
+    except ValueError:
+        text = row[0]
+    m = re.search(r"TO:\s*([\w.-]+)", text)
     return plain(m.group(1)) if m else None
 
 
