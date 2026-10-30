@@ -24,15 +24,12 @@ codebase, and it records what was needed to trust their work.
   the plan: figures, feasibility, logic and gates, and scope. The PM re-verifies each finding and
   attacks its own fixes in a second round. In the field, this found gates that could not fail and a
   goal that no card delivered, in about three minutes.
-- **Focus that survives compaction.** Focus files at three levels (project, epic, line of work,
-  one PM per line) hold each objective in the PO's own words, the directives in force, and a short
-  log per turn. Only the PO changes an objective, so a late nuance can't silently replace it when a
-  PM's context is compacted. Each chat is bound to one line (`scripts/focus.py bind`), and a
-  hook (`scripts/focus.py hook focus/`) gives it its project, its active epic, and its line after
-  every compaction and across `/clear`; a new chat gets the project and picks or opens its line,
-  and one-shot dev sessions (prompt `TO: ...`) are kept out of the focus files.
-  `scripts/focus.py check focus/` flags an objective that changed without the PO.
-- **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus log.
+- **Focus that survives compaction.** Focus files at two levels (project and line of work, one
+  PM per line) hold each objective in the PO's own words and the directives in force. Only the PO
+  changes an objective, so a late nuance can't silently replace it when a PM's context is
+  compacted. A session-start hook (`scripts/focus.py hook focus/`) re-injects the anchors after
+  every compaction, and `scripts/focus.py check focus/` flags what lets an objective drift.
+- **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus file.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
 from a kanban CLI to a markdown table. Tool-specific notes live in `adapters/`.

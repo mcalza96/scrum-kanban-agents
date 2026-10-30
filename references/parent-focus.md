@@ -33,7 +33,7 @@ Where it doesn't, make it a rule anyway: children return `{pointer, summary}`
 and stop. Only the PM comments, moves, and closes cards, so there is exactly
 one writer and the board never diverges from what the PM believes. The same
 holds for the focus files (`focus-log.md`): children and one-shot devs never
-read, bind, or write them.
+read or write them.
 
 ## Human steering is an input, not an override of the process
 

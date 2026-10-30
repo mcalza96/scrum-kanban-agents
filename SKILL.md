@@ -104,24 +104,19 @@ pending → in progress → reported → closed
    the agent: duration, steps, test runs, re-reads, failures, tokens, and cost. The PM keeps them in
    a trace database with each verdict. Time informs the PM. It is never a target for the devs. Read
    `references/traceability.md`.
-10. **The objective survives the context.** Focus files keep, at three levels (`focus/PROJECT.md`,
-    `focus/epics/<epic>.md`, `focus/lines/<line>.md`, one PM per line), an anchor with the
-    objective (the PO's words, verbatim), the non-goals, and the directives in force, plus an
-    append-only log of one short entry per turn that changed something.
+10. **The objective survives the context.** Focus files at two levels (`focus/PROJECT.md`, and
+    `focus/lines/<line>.md` for each PM's line of work) keep an anchor: the objective in the PO's
+    words, verbatim, the non-goals, and the directives in force. An epic's objective lives in its
+    `EPIC.md`.
     - Only the PO changes an objective. Every steering message is classified by kind (`objective`,
       `constraint`, `nuance`, `decision`; default `nuance`) and by level (default: the PM's own
       line). A message that contradicts the anchor or a wider level is a question to the PO, not a
       new directive.
-    - Each PM re-reads its anchors (project, its line's active epic, its line) at the start of every
-      session, right after every compaction, and before every ticket or verdict. Its own summary of
-      the conversation is not the anchor.
-    - One chat runs one line, bound by its session id (`focus.py bind`); a new chat inherits the
-      project and opens a line or joins one, and `/clear` keeps the line. Chats have no cap: each
-      loads only its own anchors.
-    - Dev sessions never open, join, or read lines: a first prompt starting with `TO:` marks a
-      one-shot dev, and the hook keeps it out of the focus files.
-    - A line file has one writer, its PM. A closed epic keeps its file as history and is never
-      loaded again; the line file is the thread that runs across epics and chats.
+    - Each PM re-reads its anchors (project and its line) at the start of every session, right
+      after every compaction, and before every ticket or verdict. Its own summary of the
+      conversation is not the anchor. Where the runtime has a session-start hook,
+      `scripts/focus.py hook` injects them.
+    - A line file has one writer, its PM. Devs and subagents never read or write focus files.
     - Why: a nuance given at the end of a turn survives a compaction better than the objective given
       at the start, so the PM takes it as the new direction, and the drift compounds with every
       compaction. Read `references/focus-log.md`.
@@ -181,7 +176,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/test-speed.md` | Fast suites and single-run output |
 | `references/closing.md` | Closing plan for an epic that keeps growing |
 | `references/parent-focus.md` | The PM's own todo, ticket cap, children never mutate the board |
-| `references/focus-log.md` | Focus files per project, epic, and line: objectives and directives that survive compaction |
+| `references/focus-log.md` | Focus files per project and line: objectives and directives that survive compaction |
 | `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
 | `references/plan-attack.md` | Blind adversarial review of a complex plan before execution |
 | `references/lessons.md` | Field lessons, grouped by topic |

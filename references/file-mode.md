@@ -17,7 +17,7 @@ In this mode the board is a markdown table that every agent can read and edit.
     <TICKET-ID>-review.md     # the PM's review, with each return appended
 ```
 
-Objectives and the PO's directives live outside the epic folder, in `focus/` (project, epics,
+Objectives and the PO's directives live outside the epic folder, in `focus/` (project and
 lines of work; `references/focus-log.md`).
 
 ## `STATUS.md` rules

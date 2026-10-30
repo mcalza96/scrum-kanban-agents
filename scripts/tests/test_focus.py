@@ -23,21 +23,17 @@ GOOD = """# Focus of line X
 
 | Id | Kind | Scope | Human's words | Date | Status |
 |---|---|---|---|---|---|
-| D-1 | objective | epic | «ship A» | 2026-10-01 | in force |
+| D-1 | objective | line | «ship A» | 2026-10-01 | in force |
 | D-2 | nuance | T-07 | «tweak B» | 2026-10-02 | superseded by D-3 |
 | D-3 | nuance | T-07 | «tweak B differently» | 2026-10-03 | in force |
 
-## Log
-
-### 2026-10-02 10:00 · first turn
-- Human said: «tweak B» → D-2 (nuance, scope T-07)
-- Objective: unchanged (D-1)
-
-### 2026-10-03 10:00 · second turn
-- Objective: unchanged (D-1)
-
 ## Archived
+
+| D-0 | nuance | T-01 | «old» | 2026-09-01 | closed |
 """
+
+LEGACY_LOG = GOOD.replace("## Archived", "## Log\n\n### 2026-10-03 10:00 · a turn\n"
+                          "- Objective: unchanged (D-1)\n\n## Archived")
 
 
 def run(argv):
@@ -51,31 +47,13 @@ class FocusTest(unittest.TestCase):
     def test_good_file_passes(self):
         self.assertEqual(focus.check(GOOD, 60), [])
 
-    def test_anchor_stops_at_log(self):
-        anchor, log = focus.split(GOOD)
-        self.assertIn("## Directives in force", "\n".join(anchor))
-        self.assertNotIn("first turn", "\n".join(anchor))
-        self.assertIn("### 2026-10-03 10:00 · second turn", log)
-        self.assertNotIn("## Archived", log)
-
-    def test_entry_without_objective_line(self):
-        text = GOOD.replace("- Objective: unchanged (D-1)\n\n### 2026-10-03", "\n### 2026-10-03")
-        self.assertEqual(len(focus.check(text, 60)), 1)
-        self.assertIn("no 'Objective:' line", focus.check(text, 60)[0])
-
-    def test_objective_change_must_name_objective_directive(self):
-        drift = GOOD.replace("- Objective: unchanged (D-1)\n\n## Archived",
-                             "- Objective: now B (D-3)\n\n## Archived")
-        self.assertIn("without naming an objective directive", focus.check(drift, 60)[0])
-        confirmed = GOOD.replace(
-            "| D-3 | nuance | T-07 | «tweak B differently» | 2026-10-03 | in force |",
-            "| D-3 | nuance | T-07 | «tweak B differently» | 2026-10-03 | in force |\n"
-            "| D-4 | objective | epic | «ship B instead» | 2026-10-04 | in force |"
-        ).replace("| D-1 | objective | epic | «ship A» | 2026-10-01 | in force |",
-                  "| D-1 | objective | epic | «ship A» | 2026-10-01 | superseded by D-4 |"
-        ).replace("- Objective: unchanged (D-1)\n\n## Archived",
-                  "- Objective: changed to D-4\n\n## Archived")
-        self.assertEqual(focus.check(confirmed, 60), [])
+    def test_anchor_stops_at_archived_or_legacy_log(self):
+        for text in (GOOD, LEGACY_LOG):
+            anchor = "\n".join(focus.anchor_lines(text))
+            self.assertIn("## Directives in force", anchor)
+            self.assertNotIn("«old»", anchor)
+            self.assertNotIn("a turn", anchor)
+        self.assertEqual(focus.check(LEGACY_LOG, 60), [])
 
     def test_directive_table_errors(self):
         text = GOOD.replace("superseded by D-3", "superseded by D-9").replace(
@@ -92,6 +70,19 @@ class FocusTest(unittest.TestCase):
     def test_anchor_too_long(self):
         self.assertTrue(any("anchor is" in f for f in focus.check(GOOD, 5)))
 
+    def test_state_line(self):
+        self.assertIn('no "**State:**" line',
+                      focus.check(GOOD.replace("**State:** active\n", ""), 60)[0])
+        self.assertIn("state 'done'", focus.check(GOOD.replace("active", "done", 1), 60)[0])
+        closed = GOOD.replace("**State:** active", "**State:** closed (2026-10-20)")
+        self.assertEqual(focus.check(closed, 60), [])
+
+    def test_level_line(self):
+        self.assertIn("level None", focus.check(GOOD.replace("**Level:** line\n", ""), 60)[0])
+        self.assertIn("level 'team'", focus.check(GOOD.replace("line\n", "team\n", 1), 60)[0])
+        epic = focus.check(GOOD.replace("**Level:** line", "**Level:** epic"), 60)
+        self.assertIn("epic level is gone", epic[0])
+
     def test_cli(self):
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
             f.write(GOOD)
@@ -99,7 +90,7 @@ class FocusTest(unittest.TestCase):
             code, out = run(["anchor", f.name])
             self.assertEqual(code, 0)
             self.assertIn("# Focus of line X", out)
-            self.assertNotIn("## Log", out)
+            self.assertNotIn("## Archived", out)
             self.assertEqual(run(["check", f.name]), (0, "ok\n"))
         finally:
             os.unlink(f.name)
@@ -110,311 +101,115 @@ class FocusTest(unittest.TestCase):
             self.assertEqual(run(["check", "/nonexistent/FOCUS.md"])[0], 2)
 
 
-    def test_state_line(self):
-        self.assertIn('no "**State:**" line',
-                      focus.check(GOOD.replace("**State:** active\n", ""), 60)[0])
-        self.assertIn("state 'done'", focus.check(GOOD.replace("active", "done", 1), 60)[0])
-        closed = GOOD.replace("**State:** active", "**State:** closed (2026-10-20)")
-        self.assertEqual(focus.check(closed, 60), [])
-
-
-class LevelTest(unittest.TestCase):
-    def test_level_line(self):
-        self.assertIn("level None", focus.check(GOOD.replace("**Level:** line\n", ""), 60)[0])
-        self.assertIn("level 'team'", focus.check(GOOD.replace("line\n", "team\n", 1), 60)[0])
-
-    def test_epic_needs_lines(self):
-        epic = GOOD.replace("**Level:** line", "**Level:** epic")
-        self.assertIn('without a "**Lines:**"', focus.check(epic, 60)[0])
-        self.assertEqual(focus.check(epic.replace("**State:**", "**Lines:** ui, data\n**State:**"),
-                                     60), [])
-
-
 class AnchorDirTest(unittest.TestCase):
-    """focus/PROJECT.md, focus/epics/*.md, focus/lines/*.md."""
+    """focus/PROJECT.md and focus/lines/*.md."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name
-        os.mkdir(os.path.join(self.root, "epics"))
         os.mkdir(os.path.join(self.root, "lines"))
 
     def tearDown(self):
         self.tmp.cleanup()
+        os.environ.pop("PM_LINE", None)
 
-    def write(self, rel, level, state, objective, lines=None):
+    def write(self, rel, level, state, objective):
         text = GOOD.replace("**Level:** line", f"**Level:** {level}").replace(
             "**State:** active", f"**State:** {state}").replace("ship A", objective)
-        if lines:
-            text = text.replace("**State:**", f"**Lines:** {lines}\n**State:**")
         with open(os.path.join(self.root, rel), "w") as f:
             f.write(text)
 
     def project(self):
         self.write("PROJECT.md", "project", "active", "project goal")
         self.write("lines/ui.md", "line", "active", "ui mandate")
-        self.write("lines/data.md", "line", "active", "data mandate")
-        self.write("epics/payments.md", "epic", "closed (2026-10-14)", "ship payments", "ui, data")
-        self.write("epics/notif.md", "epic", "active", "ship notif", "ui, data")
-        self.write("epics/infra.md", "epic", "active", "move infra", "data")
+        self.write("lines/data.md", "line", "paused", "data mandate")
 
-    def test_line_gets_project_its_active_epics_and_itself(self):
+    def test_line_gets_project_and_itself(self):
         self.project()
         out = focus.anchor(self.root, "ui")
-        for want in ("project goal", "ship notif", "ui mandate"):
-            self.assertIn(want, out)
-        for unwanted in ("ship payments", "move infra", "data mandate", "[focus]", "## Log"):
-            self.assertNotIn(unwanted, out)
-        self.assertLess(out.index("project goal"), out.index("ship notif"))
-        self.assertLess(out.index("ship notif"), out.index("ui mandate"))
-
-    def test_line_in_two_active_epics_warns(self):
-        self.project()
-        out = focus.anchor(self.root, "data")
-        self.assertTrue(out.startswith("[focus] 2 active epics involve line 'data'"))
-        self.assertIn("ship notif", out)
-        self.assertIn("move infra", out)
-
-    def test_no_line_with_several_lines_warns(self):
-        self.project()
-        out = focus.anchor(self.root, None)
-        self.assertTrue(out.startswith("[focus] 2 active lines (data, ui)"))
-        self.assertNotIn("ui mandate", out)
-        self.assertIn("move infra", out)
-
-    def test_single_line_is_picked_by_itself(self):
-        self.write("PROJECT.md", "project", "active", "project goal")
-        self.write("lines/ui.md", "line", "active", "ui mandate")
-        self.write("epics/notif.md", "epic", "active", "ship notif", "ui")
-        out = focus.anchor(self.root, None)
-        self.assertNotIn("[focus]", out)
+        self.assertIn("project goal", out)
         self.assertIn("ui mandate", out)
+        for unwanted in ("data mandate", "[focus]", "## Archived"):
+            self.assertNotIn(unwanted, out)
+        self.assertLess(out.index("project goal"), out.index("ui mandate"))
+
+    def test_no_line_gets_only_the_project(self):
+        self.project()
+        out = focus.anchor(self.root, None)
+        self.assertIn("project goal", out)
+        self.assertNotIn("mandate", out)
+        self.assertNotIn("[focus]", out)
+
+    def test_paused_line_warns(self):
+        self.project()
+        self.assertTrue(focus.anchor(self.root, "data").startswith("[focus] line 'data' is paused"))
 
     def test_missing_files_warn_without_failing(self):
         out = focus.anchor(self.root, "ui")
         self.assertIn("no " + os.path.join(self.root, "PROJECT.md"), out)
         self.assertIn("line 'ui' has no focus yet", out)
 
-    def test_check_dir_cross_file(self):
+    def test_check_dir_flags_stale_active_lines_only(self):
         self.project()
-        self.write("epics/ghost.md", "epic", "paused", "x", "ui, mobile")
-        flags = focus.check_dir(self.root, 60, today=datetime.date(2026, 10, 4))
-        self.assertTrue(any("line 'mobile' has no lines/mobile.md" in f for f in flags))
-        self.assertTrue(any("data.md: 2 active epics" in f for f in flags))
-        self.assertEqual(len(flags), 2, flags)
+        self.assertEqual(focus.check_dir(self.root, 60, today=datetime.date(2026, 10, 10)), [])
+        flags = focus.check_dir(self.root, 60, today=datetime.date(2026, 11, 1))
+        self.assertEqual(len(flags), 1, flags)
+        self.assertIn("ui.md: active, but its newest directive is 29 days old", flags[0])
 
     def test_cli_line_from_env(self):
         self.project()
         os.environ["PM_LINE"] = "ui"
-        try:
-            code, out = run(["anchor", self.root])
-        finally:
-            del os.environ["PM_LINE"]
+        code, out = run(["anchor", self.root])
         self.assertEqual(code, 0)
         self.assertIn("ui mandate", out)
 
 
-class SessionTest(unittest.TestCase):
-    """Each chat is bound to one line; new chats open a line or join one."""
-
-    NOW = datetime.datetime(2026, 10, 22, 9, 30)
+class HookTest(unittest.TestCase):
+    """SessionStart (also after a compaction) prints the anchors; every other event is silent."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name
+        os.mkdir(os.path.join(self.root, "lines"))
         with open(os.path.join(self.root, "PROJECT.md"), "w") as f:
             f.write(GOOD.replace("**Level:** line", "**Level:** project")
                     .replace("ship A", "project goal"))
+        with open(os.path.join(self.root, "lines", "ui.md"), "w") as f:
+            f.write(GOOD.replace("ship A", "ui mandate"))
 
     def tearDown(self):
         self.tmp.cleanup()
+        os.environ.pop("PM_LINE", None)
 
-    def text(self, line):
-        with open(os.path.join(self.root, "lines", f"{line}.md")) as f:
-            return f.read()
-
-    def test_new_chat_gets_project_and_index(self):
-        focus.bind(self.root, "ui", "s1", self.NOW)
-        out = focus.anchor(self.root, None, "s2")
-        self.assertTrue(out.startswith("[focus] this chat (session s2) has no line of work yet"))
-        self.assertIn("project goal", out)
-        self.assertIn("- ui · last entry 2026-10-22", out)
-        self.assertIn("focus.py bind", out)
-        self.assertNotIn("# Focus of line ui", out)
-
-    def test_bind_opens_a_line_that_passes_check(self):
-        out = focus.bind(self.root, "ui", "s1", self.NOW)
-        self.assertTrue(out.startswith("[focus] opened line 'ui'"))
-        self.assertIn("has no objective yet", out)
-        text = self.text("ui")
-        self.assertEqual(focus.sessions_of(text), ["s1"])
-        self.assertEqual(focus.check(text, 60), [])
-        self.assertIn("### 2026-10-22 09:30 · — · line opened by chat s1", text)
-
-    def test_bound_chat_gets_its_line(self):
-        focus.bind(self.root, "ui", "s1", self.NOW)
-        focus.bind(self.root, "data", "s2", self.NOW)
-        out = focus.anchor(self.root, None, "s2")
-        self.assertIn("# Focus of line data", out)
-        self.assertNotIn("# Focus of line ui", out)
-        self.assertIn("project goal", out)
-
-    def test_join_adds_session_and_entry(self):
-        focus.bind(self.root, "ui", "s1", self.NOW)
-        out = focus.bind(self.root, "ui", "s2", self.NOW)
-        self.assertIn("Earlier chats on it: s1", out)
-        text = self.text("ui")
-        self.assertEqual(focus.sessions_of(text), ["s1", "s2"])
-        self.assertIn("chat s2 joined", "\n".join(focus.split(text)[1]))
-        self.assertTrue(text.rstrip().endswith("## Archived"))
-        self.assertEqual(focus.check(text, 60), [])
-        self.assertIn("already on line", focus.bind(self.root, "ui", "s2", self.NOW))
-
-    def test_join_adds_sessions_header_when_missing(self):
-        os.mkdir(os.path.join(self.root, "lines"))
-        with open(os.path.join(self.root, "lines", "ui.md"), "w") as f:
-            f.write(GOOD)
-        focus.bind(self.root, "ui", "s9", self.NOW)
-        self.assertEqual(focus.sessions_of(self.text("ui")), ["s9"])
-
-    def test_bind_refuses_bad_names_and_second_line(self):
-        with self.assertRaises(ValueError):
-            focus.bind(self.root, "UI stuff", "s1", self.NOW)
-        focus.bind(self.root, "ui", "s1", self.NOW)
-        with self.assertRaises(ValueError):
-            focus.bind(self.root, "data", "s1", self.NOW)
-
-    def test_check_dir_flags_stale_lines_and_shared_sessions(self):
-        focus.bind(self.root, "ui", "s1", self.NOW)
-        focus.bind(self.root, "data", "s2", self.NOW)
-        path = os.path.join(self.root, "lines", "data.md")
-        with open(path) as f:
-            text = f.read()
-        with open(path, "w") as f:
-            f.write(text.replace("**Sessions:** s2", "**Sessions:** s2, s1"))
-        flags = focus.check_dir(self.root, 60, today=datetime.date(2026, 11, 30))
-        self.assertTrue(any("session s1 is also bound to line" in f for f in flags), flags)
-        self.assertEqual(sum("days old" in f for f in flags), 2, flags)
-        self.assertFalse(any("days old" in f for f in
-                             focus.check_dir(self.root, 60, today=datetime.date(2026, 10, 23))))
-
-    def test_hook_reads_session_from_stdin(self):
-        focus.bind(self.root, "ui", "abc-123", self.NOW)
+    def hook(self, event):
         stdin = sys.stdin
-        sys.stdin = io.StringIO(json.dumps({"session_id": "abc-123", "source": "compact"}))
+        sys.stdin = io.StringIO(json.dumps(event))
         try:
-            code, out = run(["hook", self.root])
+            return run(["hook", self.root])
         finally:
             sys.stdin = stdin
+
+    def test_session_start_prints_project_then_line(self):
+        code, out = self.hook({"hook_event_name": "SessionStart", "source": "compact"})
         self.assertEqual(code, 0)
-        self.assertIn("# Focus of line ui", out)
+        self.assertIn("project goal", out)
+        self.assertNotIn("ui mandate", out)
+        os.environ["PM_LINE"] = "ui"
+        self.assertIn("ui mandate", self.hook({"hook_event_name": "SessionStart"})[1])
+
+    def test_other_events_are_silent(self):
+        for name in ("UserPromptSubmit", "SessionEnd"):
+            self.assertEqual(self.hook({"hook_event_name": name, "prompt": "hi"}), (0, ""))
+
+    def test_bad_stdin_never_blocks(self):
+        stdin = sys.stdin
         sys.stdin = io.StringIO("not json")
         try:
             code, out = run(["hook", self.root])
         finally:
             sys.stdin = stdin
         self.assertEqual(code, 0)
-
-
-class HookTest(unittest.TestCase):
-    """The Claude Code hook: /clear keeps the line, dev sessions never touch the focus files."""
-
-    NOW = datetime.datetime(2026, 10, 22, 9, 30)
-    T = 1_000_000.0
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = self.tmp.name
-        with open(os.path.join(self.root, "PROJECT.md"), "w") as f:
-            f.write(GOOD.replace("**Level:** line", "**Level:** project")
-                    .replace("ship A", "project goal"))
-        focus.bind(self.root, "ui", "old", self.NOW)
-        self.env = {k: os.environ.pop(k) for k in ("PM_LINE", "FOCUS_ROLE") if k in os.environ}
-
-    def tearDown(self):
-        os.environ.pop("FOCUS_ROLE", None)
-        os.environ.update(self.env)
-        self.tmp.cleanup()
-
-    def event(self, name, session, agent=4242, t=None, **kw):
-        return focus.hook(self.root, dict(hook_event_name=name, session_id=session, **kw),
-                          now=self.T if t is None else t, agent=agent)
-
-    def sessions(self):
-        with open(os.path.join(self.root, "lines", "ui.md")) as f:
-            return focus.sessions_of(f.read())
-
-    def test_clear_keeps_the_line(self):
-        self.assertEqual(self.event("SessionEnd", "old", reason="clear"), "")
-        out = self.event("SessionStart", "new", t=self.T + 2, source="clear")
-        self.assertTrue(out.startswith("[focus] this chat continues line 'ui' after /clear"), out)
-        self.assertNotIn("Earlier chats", out)
-        self.assertIn("# Focus of line ui", out)
-        self.assertEqual(self.sessions(), ["old", "new"])
-        self.assertFalse(os.path.exists(focus.state_path(self.root, "clear-4242")))
-
-    def test_clear_from_another_chat_is_not_taken(self):
-        self.event("SessionEnd", "old", agent=1, reason="clear")
-        self.assertEqual(self.event("SessionStart", "new", agent=2, source="clear"), "")
-        self.assertEqual(self.sessions(), ["old"])
-
-    def test_stale_handoff_is_ignored(self):
-        self.event("SessionEnd", "old", reason="clear")
-        out = self.event("SessionStart", "new", t=self.T + focus.HANDOFF_TTL + 1, source="clear")
-        self.assertEqual(out, "")
-        self.assertEqual(self.sessions(), ["old"])
-
-    def test_exit_leaves_no_handoff(self):
-        self.event("SessionEnd", "old", reason="prompt_input_exit")
-        self.assertFalse(os.path.exists(focus.state_path(self.root, "clear-4242")))
-
-    def test_bound_chat_gets_anchors_once(self):
-        self.assertIn("# Focus of line ui", self.event("SessionStart", "old", source="compact"))
-        self.assertEqual(self.event("UserPromptSubmit", "old", prompt="hola"), "")
-
-    def test_unbound_pm_chat_is_asked_on_its_first_prompt(self):
-        self.assertEqual(self.event("SessionStart", "pm", source="startup"), "")
-        out = self.event("UserPromptSubmit", "pm", prompt="quiero una línea para pagos")
-        self.assertIn("has no line of work yet", out)
-        self.assertIn("- ui · last entry", out)
-
-    def test_dev_session_is_recorded_and_kept_out(self):
-        self.assertEqual(self.event("SessionStart", "dev1", source="startup"), "")
-        out = self.event("UserPromptSubmit", "dev1", prompt="TO: dev-ui\nTicket T-07 ...")
-        self.assertIn("one-shot dev", out)
-        self.assertNotIn("project goal", out)
-        self.assertNotIn("bind", out.split("Never")[0])
-        with self.assertRaises(ValueError):
-            focus.bind(self.root, "ui", "dev1", self.NOW)
-        self.assertIn("one-shot dev", self.event("SessionStart", "dev1", source="compact"))
-        self.assertIn("one-shot dev", self.event("UserPromptSubmit", "dev1", prompt="y además"))
-        self.assertEqual(self.sessions(), ["old"])
-
-    def test_focus_role_dev_env(self):
-        os.environ["FOCUS_ROLE"] = "dev"
-        self.assertIn("one-shot dev", self.event("SessionStart", "dev2", source="startup"))
-        with self.assertRaises(ValueError):
-            focus.bind(self.root, "data", "dev2", self.NOW)
-
-    def test_state_dir_is_ignored_by_git(self):
-        self.event("SessionEnd", "old", reason="clear")
-        with open(focus.state_path(self.root, ".gitignore")) as f:
-            self.assertEqual(f.read(), "*\n")
-
-    def test_agent_pid_skips_shells(self):
-        tree = {100: (50, "sh"), 50: (10, "claude"), 10: (1, "launchd")}
-        orig_parent, orig_getppid = focus.parent, os.getppid
-        focus.parent = lambda pid: tree.get(pid, (0, ""))
-        os.getppid = lambda: 100
-        try:
-            self.assertEqual(focus.agent_pid(), 50)
-        finally:
-            focus.parent, os.getppid = orig_parent, orig_getppid
-
-    def test_real_parent_lookup(self):
-        ppid, name = focus.parent(os.getpid())
-        self.assertEqual(ppid, os.getppid())
-        self.assertTrue(name)
+        self.assertIn("project goal", out)
 
 
 if __name__ == "__main__":

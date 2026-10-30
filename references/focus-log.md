@@ -1,4 +1,4 @@
-# Focus log: the objective survives the context
+# Focus: the objective survives the context
 
 The PM's context is compacted or restarted many times over an epic. Each compaction keeps the
 recent turns and summarizes the old ones, so the latest message weighs the most. A nuance the human
@@ -9,24 +9,22 @@ for, and every step looked reasonable.
 
 The fix is the same as for the board: what must survive goes in a file, not in the PM's memory.
 The focus files (`focus/`, template in `templates/FOCUS.md`) hold the objectives and the directives
-in force at three levels (project, epic, line of work), and each PM re-reads its own set instead of
-trusting its summary.
+in force, and each PM re-reads them instead of trusting its summary.
 
-## Two parts, two owners
+## The anchor
 
-- **Anchor.** The objective of the file's level (project, epic, or line), its non-goals, and the
-  directives in force. It is short (it must fit in one screen) and the PM reads it whole at every
-  re-anchor point.
-  - The objective is the human's words, quoted verbatim, with the date. The PM never paraphrases
-    it, because a paraphrase written after a compaction carries the drift into the file.
-  - **Only the human changes the objective**, by saying so explicitly. The PM may propose a change;
-    it writes it only after the human confirms.
-- **Log.** Append-only, one entry per PM turn that changed something. The PM never rewrites past
-  entries. It is the history; the anchor is the state.
+Each focus file is an anchor: the objective of its level, the non-goals, and the directives in
+force. It is short (it must fit in one screen) and the PM reads it whole at every re-anchor point.
 
-Writing «the current objective» from scratch at the end of every turn is the failure mode, not the
-fix: the PM would copy its drifted understanding into the file every turn. The anchor is carried
-forward unchanged unless the human changed it.
+- The objective is the human's words, quoted verbatim, with the date. The PM never paraphrases it,
+  because a paraphrase written after a compaction carries the drift into the file.
+- **Only the human changes the objective**, by saying so explicitly. The PM may propose a change;
+  it writes it only after the human confirms.
+- Writing «the current objective» from scratch at the end of every turn is the failure mode, not
+  the fix: the PM would copy its drifted understanding into the file every turn. The anchor is
+  carried forward unchanged unless the human changed it.
+- The history of why a directive exists is the directive itself (the human's words and the date)
+  plus git. There is no per-turn log: nothing re-reads it, and it grows without bound.
 
 ## Classify every steering message
 
@@ -35,7 +33,7 @@ directive (`D-<n>`) with the human's words quoted:
 
 | Kind | Meaning | Effect on the anchor |
 |---|---|---|
-| `objective` | Replaces or changes what the project, epic, or line is for | New objective; the old one is marked `superseded by D-<n>` |
+| `objective` | Replaces or changes what the project or line is for | New objective; the old one is marked `superseded by D-<n>` |
 | `constraint` | Something that must or must not happen, under the same objective | Added to the directives in force |
 | `nuance` | A refinement of how to do part of the work | Added, scoped to the part it refines (a ticket, a lane) |
 | `decision` | The answer to a STOP point or a question | Added, linked to the ticket |
@@ -46,6 +44,9 @@ directive (`D-<n>`) with the human's words quoted:
   Does Y replace D-4, or apply only to T-07?» Until the human answers, the anchor stays as it is.
 - A later directive supersedes an earlier one only by naming it. Both stay in the file, and the old
   one is marked `superseded by D-<n>`.
+- **Level: the default is the narrowest one, the PM's own line.** A message goes to the project
+  file only when the PO says so, or confirms it when asked. A message that contradicts a wider
+  level is a question to the PO, never a line directive that overrides it.
 
 ## When the PM writes and re-reads
 
@@ -53,205 +54,78 @@ directive (`D-<n>`) with the human's words quoted:
   - at the start of every session, before answering anything;
   - right after a compaction, before the next action (the summary is not the anchor);
   - before writing or splitting a ticket, before a verdict, and before a closing plan.
-- **Write at the end of every turn that changed something:** a new directive, a ticket opened or
-  closed, a verdict, a STOP answered. A turn that only reported status adds nothing.
-- **Lint after writing.** `scripts/focus.py check focus/` flags an anchor too long to read
-  whole, directive ids that repeat or point nowhere, zero or several objectives in force, and log
-  entries without an `Objective:` line or whose objective changed without naming an `objective`
-  directive. Exit 0 means nothing was flagged.
+- **Write when the human steers**, in the same turn: the directive, in their words, with the date
+  from `date`.
+- **Lint after writing.** `scripts/focus.py check focus/` flags an anchor too long to read whole,
+  directive ids that repeat or point nowhere, zero or several objectives in force, and active lines
+  with no new directive in `--stale-days`. Exit 0 means nothing was flagged.
 - **Check before acting.** If the next step doesn't serve the objective, or breaks a directive in
   force, the PM says so and asks instead of doing it.
 
-## The log entry
-
-One entry per turn, at most five lines, no payload:
-
-```
-### YYYY-MM-DD HH:MM · turn summary in one line
-- Human said: «exact words» → D-7 (nuance, scope T-07)
-- Done: T-07 returned (E1, E2); T-09 opened
-- Objective: unchanged (D-1)
-- Next: wait for T-07 return; T-09 waits on T-07
-```
-
-- The time comes from `date`, never from memory.
-- `Objective: unchanged` is written every time. When it says anything else, it must point at a
-  directive the human confirmed.
-- Pointers, not payload: ticket ids and directive ids. Detail lives on the card (`parent-focus.md`).
-
 ## Keep the anchor small
 
-The log grows; the anchor must not. When the directives in force no longer fit on one screen:
+When the directives in force no longer fit on one screen:
 
 - move superseded directives and those of closed tickets to an «Archived» section at the end;
-- if what remains still doesn't fit, the epic has too many open fronts: rule 7 applies.
+  everything from `## Archived` down is never printed;
+- if what remains still doesn't fit, the work has too many open fronts: rule 7 applies.
 
-The PM reads the log only when it needs the history (why a directive exists, when it changed). The
-anchor is what it reads every time.
-
-## Three levels: project, epic, line
-
-The PO owns the project. The project has several lines of work (UI, DATA, INFRA, ...), each run by
-one PM, and epics that involve one or more lines. Each level has its own focus file, all from
-`templates/FOCUS.md`, in one folder:
+## Two levels: project and line
 
 ```
 focus/
-  PROJECT.md          Level: project   the PO's objective, directives for every line
-  epics/
-    payments.md       Level: epic      State: closed (2026-10-14)   never loaded again
-    notifications.md  Level: epic      State: active   Lines: ui, data
+  PROJECT.md      Level: project   the PO's objective, directives for every line
   lines/
-    ui.md             Level: line      the UI PM's thread: mandate, directives, turn log,
-                                       Sessions: the chats that ran it
-    data.md           Level: line      the DATA PM's thread
+    ui.md         Level: line      the UI PM's mandate and standing directives
+    data.md       Level: line      the DATA PM's
 ```
 
 - **Project.** The objective of the whole project and the directives every line obeys («never
   touch the billing schema», «tests stay under 60 s»). It changes rarely.
-- **Epic.** The objective of one module or feature, the lines it involves (`**Lines:**`), and the
-  contracts between those lines («DATA exposes `/v2/notifications`, UI only reads it»). It is
-  shared by every PM of those lines. It opens and closes.
-- **Line.** One PM's thread across epics: the line's mandate, its standing directives, and the log
-  of that PM's turns (the first field of each entry names the epic). It outlives the epics, so this
-  is the thread that survives compactions, new sessions, and the end of an epic.
-
-### Who writes where
-
-- Every directive is the PO's words, wherever it lands.
-- **A line file has one writer: its PM.** Other PMs read it, never edit it.
-- **Project and epic files are shared.** A PM appends a row or a log entry there only after the PO
-  confirmed the directive belongs at that level. It re-reads the file right before writing, appends
-  in one edit, and never edits rows another PM wrote.
-- The board stays as it is (`file-mode.md`, `board-mode.md`): focus files hold intent, the board
-  holds work.
-
-### Classify the level, too
-
-A steering message gets a level besides its kind. **The default is the narrowest one: the PM's own
-line.** A message goes higher only when the PO says so, or confirms it when asked:
-
-- «make the buttons bigger», said to the UI PM → `lines/ui.md`, nuance;
-- «notifications must also work offline» → it changes the epic for every line: the UI PM asks
-  «does this apply to the whole notifications epic, DATA included?» and, on a yes, appends it to
-  `epics/notifications.md`. The DATA PM sees it on its next re-anchor;
-- a message that contradicts a wider level (a line nuance against an epic contract) is a question
-  to the PO, never a line directive that overrides the wider one.
-
-### Lifecycle
-
-1. **Open an epic.** The PO states its objective and the lines it involves. One PM creates
-   `epics/<name>.md` with `**State:** active`, `**Lines:**`, and the objective as D-1. Each
-   involved PM writes an entry in its line log: «joins <epic>».
-2. **One active epic per line.** A line in two active epics gets a warning on every re-anchor until
-   the PO pauses one (`**State:** paused`, with a log entry saying why and who asked).
-3. **Close an epic.** When its done criterion is met, or the PO drops it, each involved PM writes a
-   last entry in its line log, and one PM writes the closing entry in the epic file comparing the
-   result with D-1 and sets `**State:** closed (YYYY-MM-DD)`. The file stays as the record of why
-   the module is the way it is; the hook never loads it again.
-4. **Nothing carries over by accident.** Project directives live in `PROJECT.md` and line
-   directives in the line file, so they persist on their own. Epic directives die with the epic. If
-   the PO wants one to outlive it, it is moved, in the PO's words, to the line or project file.
-5. **Close a line** only when the PO dissolves it: last log entry, `**State:** closed (date)`.
-
-## One chat, one line
-
-Lines of work are not a fixed list. The PO opens a chat whenever a new thread of work starts, and
-can keep any number of chats open in parallel, each with its own line. Every chat inherits the
-project and runs exactly one line; the line file is that thread's memory, so it outlives the chat.
-
-- **The chat is bound to its line by its session id.** A line file lists the chats that ran it in
-  `**Sessions:**`. The session-start hook reads the chat's session id and loads that line, so
-  nothing has to be set by hand before opening a chat.
-- **A new chat has no line yet.** On its first prompt the hook gives it the project anchor and an
-  index of the active lines (name, date of the last entry, objective), and the PM's first act is
-  to ask the PO: «a new line, or one of these?». Then it binds the chat:
-
-  ```bash
-  python3 scripts/focus.py bind focus/ notifications-ui --session <id>
-  ```
-
-  - A new name opens `lines/<name>.md` with this chat in `**Sessions:**` and an empty objective.
-    The PM writes the PO's words as D-1 before anything else; until then every re-anchor warns.
-  - An existing name adds the chat to `**Sessions:**` with a log entry, so a thread can continue in
-    a fresh chat after the old one got too long. The old chat is closed: **a line has one writer**,
-    so two open chats on one line is the failure to avoid, and `bind` names the earlier chats to
-    make that visible.
-  - A chat runs one line. Binding it to a second one is refused; work for another line goes to
-    another chat.
-- **The number of chats has no cap, the context does.** Each chat loads the project, its line's
-  active epic, and its line: the same three anchors whether there are 2 lines or 40. Only the index
-  a new chat sees grows, at one line per active line.
-- **`/clear` keeps the line.** `/clear` starts a new conversation with a new session id in the same
-  chat. The hook pairs the two: when the old session ends with reason `clear` it leaves a handoff
-  keyed by the agent's process, and the next session of that same process takes the line over
-  (`continues <old> after /clear` in the log). Another chat clearing at the same moment has another
-  process, so it never takes this line. A handoff older than 10 minutes is ignored.
-- **Lines go stale, so close them.** A line whose chat was abandoned stays `active` forever unless
-  someone closes it. `focus.py check focus/` flags active lines whose last entry is older than
-  `--stale-days` (14 by default), and the PM asks the PO whether to pause or close each one. A
-  closed line drops out of the index; its file stays as history.
-
-## Dev sessions never open lines
-
-Lines are the PMs' threads. Dev sessions are one-shot (rule 8): one ticket, one report, stop. If a
-dev session ran in the same project with the same hooks and were treated as a new chat, it would be
-told to open a line, and every ticket would leave an orphan thread behind. So the hook tells the
-two apart before anything is loaded:
-
-- **A dev prompt starts with `TO: <agent>`** (rule 5). An unbound chat whose first prompt starts
-  with `TO:` is recorded as a dev session (`.state/dev-<id>`), gets a short notice («the ticket is
-  your only spec; never read, bind, or write the focus files») instead of the project and the
-  index, and keeps getting that notice on every later event. `bind` refuses a dev session.
-- **`FOCUS_ROLE=dev`** in the environment does the same from the start, for devs launched by a
-  script or a dispatcher.
-- **Devs get no anchors.** What a dev needs from the objective is already in its ticket, written by
-  the PM; the focus files are pointers for the PM, not payload for the dev (`parent-focus.md`).
-- **Other runtimes and board workers** (opencode, a kanban dispatcher) do not run these hooks at
-  all, so they never see the focus files. Only the PM reads and writes them.
-- **Subagents of a PM chat** (delegated children) share nothing with the focus files either:
-  children return `{pointer, summary}`, and only the PM writes, exactly as with the board.
+- **Line.** One PM's mandate across epics. It outlives the epics.
+- **An epic's objective lives in its own `EPIC.md`** (`file-mode.md`), the one place it is edited.
+  It is not repeated in `focus/`.
+- **A line file has one writer: its PM.** `PROJECT.md` is shared: a PM appends a row only after the
+  PO confirmed it belongs there, re-reads the file right before writing, and never edits rows
+  another PM wrote.
+- **States:** `active`, `paused`, `closed (YYYY-MM-DD)`. Only the PO pauses or closes a line; the
+  lint asks about an active line that has gone quiet.
+- **Devs and subagents never read or write the focus files.** What a dev needs from the objective
+  is already in its ticket, written by the PM (`parent-focus.md`).
 
 ## Make the re-read mechanical where the runtime allows it
 
 «Re-read after compaction» is a rule the PM forgets for the same reason it forgets the objective.
 Where the runtime can inject text into the context, let it:
 
-- **Claude Code:** one command, `scripts/focus.py hook focus/`, on three events. It reads the
-  event's JSON on stdin (`session_id`, and `source`, `prompt` or `reason`) and acts by event:
-  - `SessionStart` (startup, resume, every compaction, `/clear`): its output enters the context
-    right after the summary. A chat bound to a line gets, in this order, the project anchor, the
-    anchors of the active epics that list the line, and the line's own anchor (each anchor is
-    everything above `## Log`). After `/clear`, the new session takes over the line first.
-  - `UserPromptSubmit`: for a chat on no line, the first prompt decides. `TO:` means a dev (see
-    above); anything else means a PM, which gets the project anchor and the index of lines, with
-    the order to bind first, on every prompt until it binds. A bound chat gets nothing here.
-  - `SessionEnd`: on `/clear`, leaves the handoff for the next session of the same chat.
-
-  Missing files, a line without an objective, or a line in two active epics come back as `[focus]`
-  warnings, never as a failure, so the hook never blocks a session. The hook never needs editing
-  when a line or an epic opens or closes. Its machine state lives in `focus/.state/`, which ignores
-  itself in git. In the project's `.claude/settings.json` (adjust both paths in all three):
+- **Claude Code:** `scripts/focus.py hook focus/` on `SessionStart`, which also fires after every
+  compaction. It prints the project anchor and, when `PM_LINE` is set in the environment
+  (`PM_LINE=ui claude`), the line's anchor. Any other event prints nothing. Missing files or a
+  paused line come back as `[focus]` warnings, never as a failure. In the project's
+  `.claude/settings.json` (adjust both paths):
 
   ```json
   {
     "hooks": {
       "SessionStart": [{ "hooks": [{ "type": "command",
-        "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }] }],
-      "UserPromptSubmit": [{ "hooks": [{ "type": "command",
-        "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }] }],
-      "SessionEnd": [{ "hooks": [{ "type": "command",
         "command": "python3 ~/.claude/skills/scrum-kanban-agents/scripts/focus.py hook \"$CLAUDE_PROJECT_DIR/focus\"" }] }]
     }
   }
   ```
 
-  `PM_LINE=<line>` in the environment overrides the binding, for a PM launched by a script.
-- **Other runtimes:** use their pre-compaction or session-start hook if they have one, passing the
-  chat's id to `focus.py anchor focus/ --session <id>`. If there is none, put in the PM's system
-  prompt or project instructions the order to run `focus.py anchor focus/ --line <line>` first and
-  to read what it prints. That instruction survives compaction because it is not part of the
-  conversation.
-- **Lint:** `scripts/focus.py check focus/` checks every file plus what only shows across files: an
-  epic naming a line with no file, a line in two active epics, a chat bound to two lines, and stale
-  active lines.
+- **Other runtimes:** use their session-start or pre-compaction hook if they have one, running
+  `focus.py anchor focus/ --line <line>`. If there is none, put in the PM's system prompt or
+  project instructions the order to run that command first and to read what it prints. That
+  instruction survives compaction because it is not part of the conversation.
+
+## What was removed, and why
+
+v0.5 to v0.7 added a session-to-line binding, an epic level and a per-turn log. One project used
+them for a week:
+
+- The PMs ran in a runtime without hooks; the only hooked chat was the PO's, which spans several
+  lines. It ended up bound to two lines, and every unbound chat was told to bind on every prompt.
+- `focus/epics/` held 2 files for 8 real epics, repeating what each `EPIC.md` already said.
+- One line's log reached 283 entries (77 KB) that nothing re-read.
+
+A mechanism comes back only when a second project shows the need.

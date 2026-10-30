@@ -1,12 +1,10 @@
-# Focus of <project | epic | line> <NAME>
+# Focus of <project | line> <NAME>
 
 **Level:** line
 **State:** active
-**Lines:** <epic only: the lines of work it involves, e.g. ui, data, infra; delete this line otherwise>
-**Sessions:** <line only: the chats that ran this line, written by focus.py bind; delete otherwise>
 
 Read the anchor whole at the start of every session, after every compaction, and before every
-ticket, verdict, or closing plan. Every directive is the PO's words. Project and epic files are
+ticket, verdict, or closing plan. Every directive is the PO's words. The project file is
 shared by every PM; a line file is written only by that line's PM. See `references/focus-log.md`.
 
 ## Objective
@@ -15,7 +13,7 @@ shared by every PM; a line file is written only by that line's PM. See `referenc
 
 ## Non-goals
 
-- <what this project, epic, or line will not do, in the PO's words>
+- <what this project or line will not do, in the PO's words>
 
 ## Directives in force
 
@@ -28,21 +26,11 @@ shared by every PM; a line file is written only by that line's PM. See `referenc
 
 Kinds: `objective`, `constraint`, `nuance` (the default), `decision`.
 Scopes: this file's level, or narrower (a ticket, a lane). Wider goes to the wider file.
-States: `active`, `paused`, `closed (YYYY-MM-DD)`. A line works on one active epic at a time.
+States: `active`, `paused`, `closed (YYYY-MM-DD)`. An epic's objective lives in its EPIC.md.
 
 ## Open questions to the human
 
 - <contradiction or ambiguity the PM asked about; nothing changes until it is answered>
-
-## Log
-
-Append-only. One entry per turn that changed something. Never rewrite past entries.
-
-### YYYY-MM-DD HH:MM · <epic> · <turn summary in one line>
-- PO said: «exact words» → D-<n> (<kind>, scope <scope>), or → epics/<epic>.md D-<n>
-- Done: <ticket ids and verdicts>
-- Objective: unchanged (D-1)
-- Next: <next step>
 
 ## Archived
 
