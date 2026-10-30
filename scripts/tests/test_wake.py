@@ -31,9 +31,12 @@ class WakeTest(unittest.TestCase):
         self.db.close()
         self.tmp.cleanup()
 
-    def session(self, sid, command, t, parent=None, busy=False):
+    def session(self, sid, command, t, parent=None, busy=False, to=None):
         self.db.execute("insert into session_v2 values (?,?,?,null,?,?)",
                         (sid, parent, self.project, 2 if busy else 1, 1 if busy else 2))
+        if to:
+            self.db.execute("insert into session_message values (?,'user',?,?)",
+                            (sid, t - 0.5, json.dumps({"content": [{"type": "text", "text": f"TO: {to} (opencode)"}]})))
         tool = {"type": "tool", "state": {"input": {"command": command},
                                           "content": [{"type": "text", "text": "output"}]}}
         self.db.execute("insert into session_message values (?,'assistant',?,?)",
@@ -61,6 +64,15 @@ class WakeTest(unittest.TestCase):
         self.assertEqual(self.wake(), "nothing new unread")
         self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
         self.assertIn("M-1", self.sent[0][1])
+
+    def test_another_pm_reading_the_mailbox_does_not_take_it(self):
+        # 2026-10-30: PM-grupos read PM-ui's mailbox to check on it, was the newest reader,
+        # and got PM-ui's wakes; PM-ui never woke.
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        self.session("ses_grupos", f"inbox.py read {self.root} PM-ui", 2, to="PM-grupos")
+        inbox.send(self.root, "PM-ui", "PO", "R-9")
+        self.wake()
+        self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
 
     def test_wakes_again_only_for_new_ids(self):
         self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1)

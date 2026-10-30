@@ -95,6 +95,14 @@ def woken_ids(root: str, pm: str) -> set[str]:
     return ids
 
 
+def addressee(db: sqlite3.Connection, sid: str) -> str | None:
+    """The PM a session was started for: the `TO: <pm>` that opens its first user prompt."""
+    row = db.execute("select data from session_message where session_id = ? and type = 'user'"
+                     " order by time_created limit 1", (sid,)).fetchone()
+    m = re.search(r"TO:\s*([\w.-]+)", row[0]) if row else None
+    return m.group(1) if m else None
+
+
 def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
     """Newest top-level, unarchived session that ran `inbox.py read` on this mailbox."""
     read = re.compile(r"inbox\.py\s+read\s+(\S+)\s+" + re.escape(pm) + r"(?![\w.-])")
@@ -105,6 +113,8 @@ def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
         " where m.type = 'assistant' and s.parent_id is null and s.time_archived is null"
         " and m.data like ? order by m.time_created desc limit 500", (f"%inbox.py read %{pm}%",))
     for sid, cwd, data in rows:
+        if addressee(db, sid) not in (None, pm):
+            continue  # another PM read this mailbox to check on it; it is not pm's session
         for cmd in commands(data):
             for path in read.findall(cmd):
                 path = os.path.join(cwd, os.path.expanduser(path.strip("'\"")))
