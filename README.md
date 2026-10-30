@@ -32,7 +32,7 @@ codebase, and it records what was needed to trust their work.
 - **PMs talk to each other.** One mailbox per PM (`scripts/inbox.py`). A hook (an opencode plugin
   in `adapters/opencode/inbox.js`, or a Claude Code hook) puts unread messages in front of every PM
   turn, the PM acks after acting, and `inbox.py check` flags what was left unread. In opencode a
-  message also wakes an idle PM (`adapters/opencode/wake.py`, capped at 3 wakes per PM per hour).
+  message also wakes an idle PM (`adapters/opencode/wake.py`, capped at 20 wakes per PM per hour).
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus file.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,

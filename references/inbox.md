@@ -53,7 +53,7 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   findable after its first read), waits up to 30 minutes for it to be idle, and sends it one turn
   that says to read the mailbox. The turn shows live in the PM's window. It does not pass
   `--auto`: permission prompts still go to the human.
-- **At most 3 wakes per PM per rolling hour.** Past that the message waits for the human. No id
+- **At most 20 wakes per PM per rolling hour.** Past that the message waits for the human. No id
   wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
   ack, which also changes the mailbox, wakes nobody.
 - A PM that never ran `inbox.py read` (it opened the file with `cat`) is not findable: its line in

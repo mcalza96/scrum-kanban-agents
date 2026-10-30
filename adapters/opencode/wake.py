@@ -33,7 +33,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
 
-CAP = 3          # wakes per PM per rolling hour (the PO's choice, 2026-10-30)
+CAP = 20         # wakes per PM per rolling hour (the owner raised it from 3, 2026-10-30)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
