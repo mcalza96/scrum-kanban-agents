@@ -62,7 +62,7 @@ pending → in progress → reported → closed
 - **One session, one task.** A session ends when its task's report is written. The next task,
   even for the same agent, starts a new session (rule 8).
 
-## The ten rules
+## The eleven rules
 
 1. **Evidence is literal.** Every claim in a report comes with the exact `$ command` and its
    output, pasted as is: no `...`, no hand-written diffs, no hand-written `ls -l`, no estimated
@@ -120,6 +120,11 @@ pending → in progress → reported → closed
     - Why: a nuance given at the end of a turn survives a compaction better than the objective given
       at the start, so the PM takes it as the new direction, and the drift compounds with every
       compaction. Read `references/focus-log.md`.
+11. **PMs talk through mailboxes.** Each PM has `inbox/<PM>.md`. A PM writes to another when it
+    closes a ticket that unblocks that lane, before it touches that lane's files, and when it needs
+    an answer to go on (`scripts/inbox.py send`). A hook puts the unread messages in front of every
+    PM turn; the PM reads them first and acks them after acting, and `inbox.py check` flags the
+    ones left unread. Read `references/inbox.md`.
 
 ## Definition of Done
 
@@ -177,11 +182,14 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/closing.md` | Closing plan for an epic that keeps growing |
 | `references/parent-focus.md` | The PM's own todo, ticket cap, children never mutate the board |
 | `references/focus-log.md` | Focus files per project and line: objectives and directives that survive compaction |
+| `references/inbox.md` | One mailbox per PM: when to write, and how reading is enforced and proven |
 | `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
 | `references/plan-attack.md` | Blind adversarial review of a complex plan before execution |
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
+| `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
+| `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
 | `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
-| `adapters/` | Tool-specific notes and helpers: `opencode.md`, `hermes-kanban/` |
+| `adapters/` | Tool-specific notes and helpers: `opencode.md`, `opencode/inbox.js`, `hermes-kanban/` |

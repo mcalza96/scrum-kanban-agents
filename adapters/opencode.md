@@ -55,3 +55,8 @@ trace described in `references/traceability.md`.
 - **Custom headers for an OpenAI-compatible provider go per model**
   (`provider.<id>.models.<model>.headers`), not in `provider.<id>.options`.
 - **Config changes need a restart.** opencode reads its config at startup.
+- **opencode v2 plugins are not the v1 API.** A plugin is `export default { id, setup }`, and
+  `setup(api)` hooks with `api.session.hook("context", fn)`. A v1 plugin (`export const X = async
+  () => ({ "chat.message": ... })`) does not load: the log says «Plugin must export a default
+  definition with an id and an effect or setup function». `adapters/opencode/inbox.js` is a working
+  v2 plugin; `scripts/opencode_inbox_smoke.sh` proves it still works after an upgrade.

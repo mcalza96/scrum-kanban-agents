@@ -29,6 +29,9 @@ codebase, and it records what was needed to trust their work.
   changes an objective, so a late nuance can't silently replace it when a PM's context is
   compacted. A session-start hook (`scripts/focus.py hook focus/`) re-injects the anchors after
   every compaction, and `scripts/focus.py check focus/` flags what lets an objective drift.
+- **PMs talk to each other.** One mailbox per PM (`scripts/inbox.py`). A hook (an opencode plugin
+  in `adapters/opencode/inbox.js`, or a Claude Code hook) puts unread messages in front of every PM
+  turn, the PM acks after acting, and `inbox.py check` flags what was left unread.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus file.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
