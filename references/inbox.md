@@ -40,3 +40,24 @@ nothing shows whether the other PM read it.
    proof. A sender that depends on a message checks its row before assuming it was received.
 4. **`inbox.py check inbox/ --max-hours 4` flags messages left unread.** The PO or any PM runs it
    at the daily; a flag means a PM that is not running or not looking.
+
+## A message wakes an idle PM
+
+The hook only works while the PM has a turn. A PM that finished its turn sees nothing until the
+human writes to it, so a message that unblocks it would wait for the human anyway.
+
+- **opencode:** the same plugin, `inbox.js`, watches `inbox/` and starts
+  `adapters/opencode/wake.py` for every mailbox that changes. It runs in the plugin because the
+  opencode service outlives every turn, while a waker started from a PM's shell command left no
+  trace in a real run. `wake.py` finds the PM's session (the newest top-level session that ran `inbox.py read inbox/ <PM>`, so a PM is
+  findable after its first read), waits up to 30 minutes for it to be idle, and sends it one turn
+  that says to read the mailbox. The turn shows live in the PM's window. It does not pass
+  `--auto`: permission prompts still go to the human.
+- **At most 3 wakes per PM per rolling hour.** Past that the message waits for the human. No id
+  wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
+  ack, which also changes the mailbox, wakes nobody.
+- A PM that never ran `inbox.py read` (it opened the file with `cat`) is not findable: its line in
+  the log says `skipped: no opencode session`. Its next turn shows the pending line; once it reads
+  with `inbox.py read`, it is.
+- Every decision (woke, capped, skipped and why) is a line in `inbox/.wakes.log`, which is also
+  what the cap counts. Read it at the daily next to `check`.

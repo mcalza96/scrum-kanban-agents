@@ -124,7 +124,8 @@ pending → in progress → reported → closed
     closes a ticket that unblocks that lane, before it touches that lane's files, and when it needs
     an answer to go on (`scripts/inbox.py send`). A hook puts the unread messages in front of every
     PM turn; the PM reads them first and acks them after acting, and `inbox.py check` flags the
-    ones left unread. Read `references/inbox.md`.
+    ones left unread. A message to an idle PM wakes it (at most 3 times per PM per hour; past that
+    it waits for the human). Read `references/inbox.md`.
 
 ## Definition of Done
 
@@ -198,4 +199,4 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
 | `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind: removable, dirty, ahead, or in use |
 | `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
-| `adapters/` | Tool-specific notes and helpers: `opencode.md`, `opencode/inbox.js`, `hermes-kanban/` |
+| `adapters/` | Tool-specific notes and helpers: `opencode.md`, `opencode/inbox.js`, `opencode/wake.py`, `hermes-kanban/` |

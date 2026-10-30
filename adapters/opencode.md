@@ -60,3 +60,9 @@ trace described in `references/traceability.md`.
   () => ({ "chat.message": ... })`) does not load: the log says «Plugin must export a default
   definition with an id and an effect or setup function». `adapters/opencode/inbox.js` is a working
   v2 plugin; `scripts/opencode_inbox_smoke.sh` proves it still works after an upgrade.
+- `opencode run --session <id> "<text>"` without `--standalone` sends a turn through the running
+  service: it shows live in the window that has that session open. `adapters/opencode/wake.py`
+  uses it to wake idle PMs; idle means `session_v2.time_busy <= time_idle` in the database.
+- A detached process started from a session's shell tool did not survive the command in a real
+  run (2026-10-30: two sends, no line in the log; the cause was not isolated). Work that must
+  outlive a turn starts from a plugin, which runs in the service (`inbox.js` starts `wake.py`).

@@ -5,7 +5,12 @@
 // not stored in the session, so it neither grows the history nor shows up after it was acked.
 // Dev sessions (subagents, with a parentID) never get it. Any failure is ignored: a plugin must
 // never block a turn. After every `opencode upgrade`, run scripts/opencode_inbox_smoke.sh.
-import { execFileSync } from "node:child_process";
+//
+// It also wakes idle PMs: it watches inbox/ and, on any change to a mailbox, starts wake.py for it.
+// It runs here because the service outlives every turn; a waker started from a PM's shell command
+// left no trace in a real run. wake.py decides whether there is anything new to wake for.
+import { execFileSync, spawn } from "node:child_process";
+import { watch } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +18,20 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../inbox");
 const SCRIPT = process.env.INBOX_PY ||
   join(homedir(), ".claude/skills/scrum-kanban-agents/scripts/inbox.py");
+const WAKE = join(dirname(SCRIPT), "../adapters/opencode/wake.py");
+const timers = new Map();
+
+function wake(file) {
+  const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)\.md$/.exec(file ?? "");
+  if (!m) return;
+  clearTimeout(timers.get(m[1])); // one write fires several events
+  timers.set(m[1], setTimeout(() => {
+    timers.delete(m[1]);
+    try {
+      spawn("python3", [WAKE, ROOT, m[1]], { detached: true, stdio: "ignore" }).unref();
+    } catch {}
+  }, 2000));
+}
 
 function pending() {
   try {
@@ -25,6 +44,9 @@ function pending() {
 export default {
   id: "scrum-kanban-agents.inbox",
   setup: async (api) => {
+    try {
+      watch(ROOT, (_, file) => wake(file));
+    } catch {} // no inbox/ yet: nothing to wake
     await api.session.hook("context", async (req) => {
       try {
         const last = req.messages?.at(-1);
