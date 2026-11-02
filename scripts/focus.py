@@ -22,9 +22,12 @@ exit 0, so the hook never blocks a session.
 `check` flags, per file:
   * a missing or invalid "**Level:**" (project, line) or "**State:**" (active, paused,
     closed (YYYY-MM-DD));
-  * an anchor longer than --max-anchor-lines (it stops being read whole);
-  * directive ids that repeat, kinds outside objective/constraint/nuance/decision, and
-    "superseded by D-<n>" pointing at a directive that does not exist;
+  * an anchor longer than --max-anchor-lines or --max-anchor-bytes (it stops being read whole;
+    one row can hold kilobytes, so lines alone don't measure it);
+  * a directive row longer than MAX_ROW_CHARS: several decisions packed into one cell;
+  * directive ids that repeat, kinds outside objective/constraint/nuance/decision, a status
+    other than "in force", "superseded/suspended by D-<n>" or "executed (<report>)", "superseded by D-<n>"
+    pointing at a directive that does not exist, and "executed" rows still in the anchor;
   * zero or several objectives in force.
 On a folder it also flags active lines whose newest directive is older than --stale-days.
 
@@ -44,6 +47,8 @@ from dataclasses import dataclass
 KINDS = {"objective", "constraint", "nuance", "decision"}
 END_OF_ANCHOR = re.compile(r"^##\s+(Archived|Log)\s*$")
 SUPERSEDED = re.compile(r"superseded by (D-\d+)")
+STATUS_OK = re.compile(r"^(in force\b|(superseded|suspended) by D-\d+|executed \(.+\))")
+MAX_ROW_CHARS = 1500
 STATE_OK = re.compile(r"^(active|paused|closed \(\d{4}-\d{2}-\d{2}\))$")
 LEVELS = {"project", "line"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -135,7 +140,7 @@ def directives(lines: list[str]) -> list[Directive]:
     return found
 
 
-def check(text: str, max_anchor_lines: int) -> list[str]:
+def check(text: str, max_anchor_lines: int, max_anchor_bytes: int = 12000) -> list[str]:
     flags = []
     st = state(text)
     if st is None:
@@ -152,6 +157,10 @@ def check(text: str, max_anchor_lines: int) -> list[str]:
     if len(anchor) > max_anchor_lines:
         flags.append(f"anchor is {len(anchor)} lines (max {max_anchor_lines}): archive superseded "
                      "directives, or the work has too many open fronts (rule 7)")
+    size = len("\n".join(anchor).encode())
+    if size > max_anchor_bytes:
+        flags.append(f"anchor is {size} bytes (max {max_anchor_bytes}): archive executed and "
+                     "superseded directives; never summarize the human's words to fit")
 
     ds = directives(anchor)
     all_ids = {d.id for d in ds}
@@ -163,6 +172,14 @@ def check(text: str, max_anchor_lines: int) -> list[str]:
         if d.kind not in KINDS:
             flags.append(f"line {d.line}: {d.id} has kind {d.kind!r}, expected one of "
                          + ", ".join(sorted(KINDS)))
+        if not STATUS_OK.match(d.status):
+            flags.append(f"line {d.line}: {d.id} has status {d.status!r}, expected in force, "
+                         "superseded or suspended by D-<n>, or executed (<report>)")
+        if d.status.startswith("executed"):
+            flags.append(f"line {d.line}: {d.id} is executed: move it to ## Archived")
+        if len(anchor[d.line - 1]) > MAX_ROW_CHARS:
+            flags.append(f"line {d.line}: {d.id} row is {len(anchor[d.line - 1])} chars (max "
+                         f"{MAX_ROW_CHARS}): one directive per row")
         m = SUPERSEDED.search(d.status)
         if m and m.group(1) not in all_ids:
             flags.append(f"line {d.line}: {d.id} is superseded by {m.group(1)}, "
@@ -180,7 +197,7 @@ def newest_directive(text: str) -> str | None:
 
 
 def check_dir(root: str, max_anchor_lines: int, stale_days: int = 14,
-              today: datetime.date | None = None) -> list[str]:
+              today: datetime.date | None = None, max_anchor_bytes: int = 12000) -> list[str]:
     """check() on every focus file under root, plus stale active lines."""
     project = os.path.join(root, "PROJECT.md")
     files = ([project] if os.path.exists(project) else []) + sorted(
@@ -189,7 +206,7 @@ def check_dir(root: str, max_anchor_lines: int, stale_days: int = 14,
     today = today or datetime.date.today()
     for f in files:
         t = read(f) or ""
-        flags += [f"{f}: {x}" for x in check(t, max_anchor_lines)]
+        flags += [f"{f}: {x}" for x in check(t, max_anchor_lines, max_anchor_bytes)]
         newest = newest_directive(t)
         if f != project and state(t) == "active" and newest:
             age = (today - datetime.date.fromisoformat(newest)).days
@@ -212,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("check", help="flag what lets the objective drift")
     c.add_argument("file", help="the focus folder, or one file")
     c.add_argument("--max-anchor-lines", type=int, default=60)
+    c.add_argument("--max-anchor-bytes", type=int, default=12000)
     c.add_argument("--stale-days", type=int, default=14)
     args = ap.parse_args(argv)
 
@@ -232,13 +250,14 @@ def main(argv: list[str] | None = None) -> int:
             print(out)
         return 0
     if os.path.isdir(args.file):
-        flags = check_dir(args.file, args.max_anchor_lines, args.stale_days)
+        flags = check_dir(args.file, args.max_anchor_lines, args.stale_days,
+                          max_anchor_bytes=args.max_anchor_bytes)
     else:
         text = read(args.file)
         if text is None:
             print(f"error: cannot read {args.file}", file=sys.stderr)
             return 2
-        flags = check(text, args.max_anchor_lines)
+        flags = check(text, args.max_anchor_lines, args.max_anchor_bytes)
     for flag in flags:
         print(f"FLAG {flag}")
     if not flags:

@@ -24,7 +24,9 @@ shared by every PM; a line file is written only by that line's PM. See `referenc
 | D-3 | nuance | T-07 | «...» | YYYY-MM-DD | superseded by D-4 |
 | D-4 | nuance | T-07 | «...» | YYYY-MM-DD | in force |
 
+One directive per row; never append a decision inside another row's cell.
 Kinds: `objective`, `constraint`, `nuance` (the default), `decision`.
+Statuses: `in force`, `superseded by D-<n>`, `suspended by D-<n>`, `executed (<report>)`.
 Scopes: this file's level, or narrower (a ticket, a lane). Wider goes to the wider file.
 States: `active`, `paused`, `closed (YYYY-MM-DD)`. An epic's objective lives in its EPIC.md.
 
@@ -34,5 +36,5 @@ States: `active`, `paused`, `closed (YYYY-MM-DD)`. An epic's objective lives in 
 
 ## Archived
 
-<superseded directives and directives of closed tickets, moved here when the anchor stops fitting
-on one screen>
+<superseded directives, directives of closed tickets, and executed one-shot authorizations
+(`executed (<report>)`), moved here unchanged; never summarized>

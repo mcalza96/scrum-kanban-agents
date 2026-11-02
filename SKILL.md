@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.7.0
+version: 0.8.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -117,6 +117,9 @@ pending → in progress → reported → closed
       conversation is not the anchor. Where the runtime has a session-start hook,
       `scripts/focus.py hook` injects them.
     - A line file has one writer, its PM. Devs and subagents never read or write focus files.
+    - The anchor grows by splitting, never by summarizing: one directive per row, each in the file
+      of what it governs, and executed one-shot authorizations and superseded directives move,
+      word for word, to `## Archived`, which is never loaded.
     - Why: a nuance given at the end of a turn survives a compaction better than the objective given
       at the start, so the PM takes it as the new direction, and the drift compounds with every
       compaction. Read `references/focus-log.md`.

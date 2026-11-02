@@ -70,6 +70,24 @@ class FocusTest(unittest.TestCase):
     def test_anchor_too_long(self):
         self.assertTrue(any("anchor is" in f for f in focus.check(GOOD, 5)))
 
+    def test_anchor_too_heavy_in_bytes(self):
+        # One row can hold kilobytes: 60 lines is not a size limit by itself.
+        self.assertTrue(any("bytes" in f for f in focus.check(GOOD, 60, max_anchor_bytes=200)))
+
+    def test_one_directive_per_row(self):
+        packed = GOOD.replace("«tweak B differently»", "«tweak B» · D-5 «x» " * 120)
+        self.assertTrue(any("D-3 row is" in f for f in focus.check(packed, 60)))
+
+    def test_status_vocabulary_and_executed_rows(self):
+        bad = GOOD.replace("| 2026-10-03 | in force |", "| 2026-10-03 | done |")
+        self.assertTrue(any("status 'done'" in f for f in focus.check(bad, 60)))
+        paused = GOOD.replace("| 2026-10-03 | in force |", "| 2026-10-03 | suspended by D-1 |")
+        self.assertEqual(focus.check(paused, 60), [])
+        done = GOOD.replace("| 2026-10-03 | in force |", "| 2026-10-03 | executed (MIG-1, abc123) |")
+        self.assertEqual([f for f in focus.check(done, 60) if "status" in f], [])
+        self.assertTrue(any("D-3 is executed: move it to ## Archived" in f
+                            for f in focus.check(done, 60)))
+
     def test_state_line(self):
         self.assertIn('no "**State:**" line',
                       focus.check(GOOD.replace("**State:** active\n", ""), 60)[0])

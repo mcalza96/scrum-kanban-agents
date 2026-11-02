@@ -62,13 +62,34 @@ directive (`D-<n>`) with the human's words quoted:
 - **Check before acting.** If the next step doesn't serve the objective, or breaks a directive in
   force, the PM says so and asks instead of doing it.
 
-## Keep the anchor small
+## Keep the anchor small: split, never summarize
 
-When the directives in force no longer fit on one screen:
+Every PM loads its anchor at the start and after every compaction, so its size is paid again and
+again. When it grows, the tempting fix is to summarize it. Don't: a summary replaces the human's
+words with the PM's, and that is exactly the drift the anchor exists to stop. Split and classify
+instead:
 
-- move superseded directives and those of closed tickets to an «Archived» section at the end;
-  everything from `## Archived` down is never printed;
-- if what remains still doesn't fit, the work has too many open fronts: rule 7 applies.
+- **One directive per row.** Never append a new decision inside another row's cell. Each `D-<n>`
+  gets its own row with its own kind, scope, date and status, so it can be found, superseded and
+  archived on its own. The lint flags a row longer than 1,500 characters.
+- **A status on every row:** `in force`, `superseded by D-<n>`, `suspended by D-<n>`, or
+  `executed (<report or commit>)`.
+- **One-shot authorizations are archived when executed.** «Yes, apply migration 120», «yes, push
+  only the cron», «yes, run the probe»: once the one-shot's report is verified, the row becomes
+  `executed (<report>)` and moves to `## Archived` in the same turn. Its record is the report; in
+  the anchor it guides nobody.
+- **Each directive lives in the file of what it governs.** A decision about another line goes to
+  that line's file (ask its PM to write it, since a line file has one writer); one for every line
+  goes to `PROJECT.md` once the PO confirms. A PM that receives every decision and writes them all
+  in its own line makes every other PM load them.
+- Move superseded directives and those of closed tickets to `## Archived` at the end; everything
+  from `## Archived` down is never printed. The words move unchanged.
+- If what remains still doesn't fit (more than 60 lines or 12 KB, `--max-anchor-lines`,
+  `--max-anchor-bytes`), the work has too many open fronts: rule 7 applies.
+
+Measured in one project, 2026-11-02: one line's anchor held 67 lines but 29 KB, because one row had
+grown to 17 KB with 47 decisions appended to its cell; 13 of them were executed one-shot
+authorizations (8.7 KB). The line-count limit never fired.
 
 ## Two levels: project and line
 
