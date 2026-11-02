@@ -74,6 +74,18 @@ class WakeTest(unittest.TestCase):
         self.wake()
         self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
 
+    def test_to_counts_only_when_it_opens_the_prompt(self):
+        # 2026-11-02: a PM's relaunch prompt said "launch devs with `TO: dev R-<n>`"; read anywhere,
+        # that made it a dev session, and the wakes kept going to the stuck old session.
+        self.session("ses_old", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        self.session("ses_new", f"inbox.py read {self.root} PM-ui", 2)
+        self.db.execute("insert into session_message values ('ses_new','user',1.5,?)",
+                        (json.dumps({"text": "Eres PM-ui. Lanza devs con `TO: dev R-<n>`."}),))
+        self.db.commit()
+        inbox.send(self.root, "PM-ui", "PO", "R-9")
+        self.wake()
+        self.assertEqual([s for s, _ in self.sent], ["ses_new"])
+
     def test_accent_in_the_prompt_is_the_same_pm(self):
         self.session("ses_aud", f"inbox.py read {self.root} PM-auditoria", 1, to="PM-auditoría")
         inbox.send(self.root, "PM-auditoria", "PO", "MON-2")

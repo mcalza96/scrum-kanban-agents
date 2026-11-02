@@ -114,7 +114,7 @@ def addressee(db: sqlite3.Connection, sid: str) -> str | None:
     """The PM a session was started for: the `TO: <pm>` that opens its first user prompt."""
     row = db.execute("select data from session_message where session_id = ? and type = 'user'"
                      " order by time_created limit 1", (sid,)).fetchone()
-    m = re.search(r"TO:\s*([\w.-]+)", prompt_text(row))
+    m = re.match(r"[\s\"'`]*TO:\s*([\w.-]+)", message_text(row))
     return plain(m.group(1)) if m else None
 
 
@@ -150,6 +150,18 @@ def busy(db: sqlite3.Connection, sid: str) -> bool:
 
 def opencode() -> str:
     return shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
+
+
+def message_text(row) -> str:
+    """The text a user typed, wherever opencode stored it: `text`, or the parts of `content`."""
+    try:
+        data = json.loads(row[0]) if row else {}
+    except ValueError:
+        return row[0]
+    if not isinstance(data, dict):
+        return ""
+    parts = data.get("content") if isinstance(data.get("content"), list) else []
+    return data.get("text") or "".join(c.get("text", "") for c in parts if isinstance(c, dict))
 
 
 def prompt_text(row) -> str:
