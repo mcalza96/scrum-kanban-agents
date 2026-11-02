@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.8.0
+version: 0.8.1
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
