@@ -56,6 +56,10 @@ directive (`D-<n>`) with the human's words quoted:
   - before writing or splitting a ticket, before a verdict, and before a closing plan.
 - **Write when the human steers**, in the same turn: the directive, in their words, with the date
   from `date`.
+- **Claim every id, never pick it.** A new `D-<n>`, ticket id or migration number comes from
+  `scripts/focus.py claim D --by PM-x` (or `claim SIM`, or `claim migracion --files
+  'db/migrations/*.sql'`), which hands out the next free number under a lock and records it in
+  `focus/.ids`. Picking "max + 1" by hand let two PMs take the same id four times in one day.
 - **Lint after writing.** `scripts/focus.py check focus/` flags an anchor too long to read whole,
   directive ids that repeat or point nowhere, zero or several objectives in force, and active lines
   with no new directive in `--stale-days`. Exit 0 means nothing was flagged.

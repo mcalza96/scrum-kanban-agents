@@ -5,6 +5,8 @@
     focus.py anchor focus/ --line ui    the anchors the PM of line "ui" must hold
     focus.py check focus/               flag what lets an objective drift
     focus.py check focus/lines/ui.md    the same for one file
+    focus.py claim SIM --by PM-ui       the next free SIM-<n>, never handed out twice
+    focus.py claim MIG --by PM-x --files 'db/migrations/*.sql'   the next migration number
 
 The focus folder holds one file per level, both from templates/FOCUS.md:
 
@@ -235,6 +237,52 @@ def repeated_ids(root: str, files: list[str]) -> list[str]:
             for ident, fs in sorted(where.items()) if len(set(fs)) > 1 and ident not in allowed]
 
 
+# Append-only ledger of claimed ids, one "PREFIX<TAB>n<TAB>by<TAB>date" per line, kept under the
+# focus folder. Every id a PM hands out (D-<n>, SIM-<n>, a migration number) goes through claim().
+CLAIMS = ".ids"
+SKIP_DIRS = {".git", "node_modules", ".next"}
+
+
+def used_numbers(repo: str, prefix: str, pattern: str | None) -> set[int]:
+    """Numbers already taken: by files under repo, by focus directives (D), and by the ledger."""
+    nums: set[int] = set()
+    if pattern:  # e.g. db/migrations/*.sql: the number is the basename's leading digits
+        for path in glob.glob(os.path.join(repo, pattern)):
+            m = re.match(r"\d+", os.path.basename(path))
+            if m:
+                nums.add(int(m.group()))
+    else:
+        name = re.compile(rf"(?<![A-Za-z]){re.escape(prefix)}-(\d+)")
+        for _, dirs, files in os.walk(repo):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            nums.update(int(n) for f in files for n in name.findall(f))
+        if prefix == "D":
+            focus_dir = os.path.join(repo, "focus")
+            for f in [os.path.join(focus_dir, "PROJECT.md")] + glob.glob(
+                    os.path.join(focus_dir, "lines", "*.md")):
+                for d in directives((read(f) or "").splitlines()):
+                    m = re.match(r"D-(\d+)", d.id)
+                    if m:
+                        nums.add(int(m.group(1)))
+    for line in (read(os.path.join(repo, "focus", CLAIMS)) or "").splitlines():
+        cols = line.split("\t")
+        if len(cols) >= 2 and cols[0] == prefix and cols[1].isdigit():
+            nums.add(int(cols[1]))
+    return nums
+
+
+def claim(repo: str, prefix: str, by: str, pattern: str | None = None) -> str:
+    """Hand out the next free number for prefix, atomically across concurrent PMs."""
+    import fcntl
+    ledger = os.path.join(repo, "focus", CLAIMS)
+    os.makedirs(os.path.dirname(ledger), exist_ok=True)
+    with open(ledger, "a+") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)  # released when the file closes
+        n = max(used_numbers(repo, prefix, pattern), default=0) + 1
+        fh.write(f"{prefix}\t{n}\t{by}\t{datetime.date.today().isoformat()}\n")
+    return f"{n:03d}" if pattern else f"{prefix}-{n}"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -250,8 +298,16 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--max-anchor-lines", type=int, default=60)
     c.add_argument("--max-anchor-bytes", type=int, default=12000)
     c.add_argument("--stale-days", type=int, default=14)
+    k = sub.add_parser("claim", help="hand out the next free id (D, SIM, GRU, a migration number)")
+    k.add_argument("prefix", help="D, SIM, GRU, ... or a name for numbered files (with --files)")
+    k.add_argument("--by", required=True, help="who claims it (PM-x)")
+    k.add_argument("--repo", default=".", help="the project root (holds focus/)")
+    k.add_argument("--files", help="glob of numbered files, e.g. 'db/migrations/*.sql'")
     args = ap.parse_args(argv)
 
+    if args.cmd == "claim":
+        print(claim(args.repo, args.prefix, args.by, args.files))
+        return 0
     if args.cmd == "anchor":
         print(anchor(args.path, args.line or None))
         return 0

@@ -195,6 +195,37 @@ class AnchorDirTest(unittest.TestCase):
         self.assertIn("ui mandate", out)
 
 
+class ClaimTest(unittest.TestCase):
+    """An id is handed out once: two PMs asking for the next one never get the same number."""
+
+    def setUp(self):
+        self.repo = tempfile.mkdtemp()
+        for path in ["epic-a/tickets/SIM-77.md", "epic-b/reports/SIM-80b.md",
+                     "db/migrations/126_search_cache.sql", "node_modules/x/SIM-999.md"]:
+            os.makedirs(os.path.join(self.repo, os.path.dirname(path)), exist_ok=True)
+            open(os.path.join(self.repo, path), "w").close()
+
+    def test_next_ticket_skips_files_and_earlier_claims(self):
+        self.assertEqual(focus.claim(self.repo, "SIM", "PM-a"), "SIM-81")
+        self.assertEqual(focus.claim(self.repo, "SIM", "PM-b"), "SIM-82")
+        self.assertEqual(focus.claim(self.repo, "GRU", "PM-a"), "GRU-1")
+
+    def test_migration_numbers_come_from_the_files(self):
+        pattern = "db/migrations/*.sql"
+        self.assertEqual(focus.claim(self.repo, "migracion", "PM-a", pattern), "127")
+        self.assertEqual(focus.claim(self.repo, "migracion", "PM-b", pattern), "128")
+
+    def test_d_counts_the_focus_directives(self):
+        os.makedirs(os.path.join(self.repo, "focus", "lines"))
+        with open(os.path.join(self.repo, "focus", "PROJECT.md"), "w") as f:
+            f.write(GOOD.replace("D-1 ", "D-229 "))
+        self.assertEqual(focus.claim(self.repo, "D", "PM-a"), "D-230")
+
+    def test_cli(self):
+        code, out = run(["claim", "SIM", "--by", "PM-a", "--repo", self.repo])
+        self.assertEqual((code, out.strip()), (0, "SIM-81"))
+
+
 class HookTest(unittest.TestCase):
     """SessionStart (also after a compaction) prints the anchors; every other event is silent."""
 
