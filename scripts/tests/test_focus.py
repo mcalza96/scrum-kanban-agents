@@ -3,6 +3,7 @@ import datetime
 import json
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -131,16 +132,17 @@ class AnchorDirTest(unittest.TestCase):
         self.tmp.cleanup()
         os.environ.pop("PM_LINE", None)
 
-    def write(self, rel, level, state, objective):
+    def write(self, rel, level, state, objective, first=0):
         text = GOOD.replace("**Level:** line", f"**Level:** {level}").replace(
             "**State:** active", f"**State:** {state}").replace("ship A", objective)
+        text = re.sub(r"D-(\d+)", lambda m: f"D-{int(m.group(1)) + first}", text)
         with open(os.path.join(self.root, rel), "w") as f:
             f.write(text)
 
     def project(self):
         self.write("PROJECT.md", "project", "active", "project goal")
-        self.write("lines/ui.md", "line", "active", "ui mandate")
-        self.write("lines/data.md", "line", "paused", "data mandate")
+        self.write("lines/ui.md", "line", "active", "ui mandate", first=10)
+        self.write("lines/data.md", "line", "paused", "data mandate", first=20)
 
     def test_line_gets_project_and_itself(self):
         self.project()
@@ -173,6 +175,17 @@ class AnchorDirTest(unittest.TestCase):
         flags = focus.check_dir(self.root, 60, today=datetime.date(2026, 11, 1))
         self.assertEqual(len(flags), 1, flags)
         self.assertIn("ui.md: active, but its newest directive is 29 days old", flags[0])
+
+    def test_check_dir_flags_an_id_used_in_two_files_unless_grandfathered(self):
+        self.project()
+        self.write("lines/data.md", "line", "paused", "data mandate", first=10)
+        today = datetime.date(2026, 10, 10)
+        flags = focus.check_dir(self.root, 60, today=today)
+        self.assertEqual(len(flags), 4, flags)
+        self.assertTrue(all("lines/data.md, " in f and "lines/ui.md: renumber" in f for f in flags))
+        with open(os.path.join(self.root, focus.REPEATED_OK), "w") as f:
+            f.write("# antes de la regla\nD-10\nD-11\nD-12\nD-13\n")
+        self.assertEqual(focus.check_dir(self.root, 60, today=today), [])
 
     def test_cli_line_from_env(self):
         self.project()

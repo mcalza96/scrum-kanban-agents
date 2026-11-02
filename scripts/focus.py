@@ -213,7 +213,26 @@ def check_dir(root: str, max_anchor_lines: int, stale_days: int = 14,
             if age > stale_days:
                 flags.append(f"{f}: active, but its newest directive is {age} days old: ask the "
                              "PO whether it is still active, paused, or closed")
+    flags += repeated_ids(root, files)
     return flags
+
+
+# Project-local list of ids that already repeated across files before ids had to be unique.
+# One id per line; `#` starts a comment. New ids never go here: renumber instead.
+REPEATED_OK = ".d-repetidos"
+
+
+def repeated_ids(root: str, files: list[str]) -> list[str]:
+    """A D-<n> is the PO's words once: the same id in two files makes `superseded by` ambiguous."""
+    where: dict[str, list[str]] = {}
+    for f in files:
+        for d in directives((read(f) or "").splitlines()):
+            where.setdefault(d.id, []).append(f)
+    allowed = {line.split("#")[0].strip() for line in
+               (read(os.path.join(root, REPEATED_OK)) or "").splitlines()}
+    return [f"{ident} is used in {', '.join(sorted(set(fs)))}: renumber the newer one to the "
+            "next free id across the focus folder"
+            for ident, fs in sorted(where.items()) if len(set(fs)) > 1 and ident not in allowed]
 
 
 def main(argv: list[str] | None = None) -> int:
