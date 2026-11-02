@@ -2,6 +2,7 @@
 """Wake an idle opencode PM when its mailbox gets a message (see references/inbox.md).
 
     wake.py inbox/ PM-ui         run by the opencode plugin (inbox.js) when a mailbox changes
+    wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs
 
 It finds the PM's session in opencode's database: the newest top-level session that ran
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
@@ -16,6 +17,12 @@ It finds the PM's session in opencode's database: the newest top-level session t
   stops. `inbox.py check` still catches what nobody read.
 
 Every decision is one line in inbox/.wakes.log, which is also what the cap counts.
+
+The sweep exists because a PM that ends its turn sleeps until a message arrives, even with free
+dev slots and launchable tickets. For every PM-* mailbox it nudges the PM's session once per idle
+stretch: idle for more than IDLE and less than STALE (older is a retired PM), and its last turn was
+not already a nudge, so a PM that answered "nothing to do" is not nudged again until something else
+happens in its session.
 """
 from __future__ import annotations
 
@@ -38,6 +45,13 @@ CAP = 20         # wakes per PM per rolling hour (the owner raised it from 3, 20
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
+IDLE = 20 * 60
+STALE = 12 * 3600
+NUDGE_MARK = "Barrido automático"
+NUDGE = (NUDGE_MARK + ": {pm} lleva {minutes} min sin actividad. Relee tu STATUS: si tienes "
+         "reportes por verificar, o cupo de devs libre y tickets pending sin dependencia abierta, "
+         "avanza ahora. Si todo lo que queda espera al dueño o a otro PM, dilo en una línea: qué "
+         "esperas y de quién.")
 TEXT = ("Automatic wake: {pm} has unread messages ({ids}). Run "
         "`python3 {script} read {root} {pm}`, act on them as the skill says, and ack after acting. "
         "If something needs the owner's decision, stop and say it in one line.")
@@ -100,11 +114,7 @@ def addressee(db: sqlite3.Connection, sid: str) -> str | None:
     """The PM a session was started for: the `TO: <pm>` that opens its first user prompt."""
     row = db.execute("select data from session_message where session_id = ? and type = 'user'"
                      " order by time_created limit 1", (sid,)).fetchone()
-    try:
-        text = json.dumps(json.loads(row[0]), ensure_ascii=False) if row else ""
-    except ValueError:
-        text = row[0]
-    m = re.search(r"TO:\s*([\w.-]+)", text)
+    m = re.search(r"TO:\s*([\w.-]+)", prompt_text(row))
     return plain(m.group(1)) if m else None
 
 
@@ -140,6 +150,49 @@ def busy(db: sqlite3.Connection, sid: str) -> bool:
 
 def opencode() -> str:
     return shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
+
+
+def prompt_text(row) -> str:
+    """A stored user message as text, with its accents decoded: JSON escapes them."""
+    try:
+        return json.dumps(json.loads(row[0]), ensure_ascii=False) if row else ""
+    except ValueError:
+        return row[0]
+
+
+def last_prompt(db: sqlite3.Connection, sid: str) -> str:
+    return prompt_text(db.execute("select data from session_message where session_id = ?"
+                                  " and type = 'user' order by time_created desc limit 1",
+                                  (sid,)).fetchone())
+
+
+def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float = STALE,
+          send=None) -> list[str]:
+    """Nudge every idle PM once per idle stretch. Returns one decision per PM with a session."""
+    send = send or (lambda sid, text: subprocess.Popen(
+        [opencode(), "run", "--session", sid, text],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
+    now = time.time() if now is None else now
+    done = []
+    db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    try:
+        for pm in inbox.mailboxes(root):
+            sid = pm.startswith("PM-") and find_session(db, root, pm)
+            if not sid:
+                continue
+            idle_for = now - (db.execute("select time_idle from session_v2 where id = ?",
+                                         (sid,)).fetchone()[0] or 0) / 1000
+            if busy(db, sid) or not idle <= idle_for <= stale:
+                continue
+            if NUDGE_MARK in last_prompt(db, sid):
+                done.append(f"{pm} {sid}: already nudged, waiting for news")
+                continue
+            log(root, pm, f"nudged {sid} after {idle_for / 60:.0f} min idle")
+            send(sid, NUDGE.format(pm=pm, minutes=round(idle_for / 60)))
+            done.append(f"{pm} {sid}: nudged after {idle_for / 60:.0f} min idle")
+    finally:
+        db.close()
+    return done
 
 
 def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, cap: int = CAP,
@@ -191,6 +244,9 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--sweep":
+        print("\n".join(sweep(os.path.abspath(argv[1]))) or "nobody idle")
+        return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2

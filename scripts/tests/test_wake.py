@@ -111,5 +111,38 @@ class WakeTest(unittest.TestCase):
             self.assertEqual(self.wake(), "another waker is on it")
 
 
+    def nudge(self, minutes):
+        return wake.sweep(self.root, now=minutes * 60, send=self.send)
+
+    def test_sweep_nudges_an_idle_pm_once_per_idle_stretch(self):
+        # 2026-11-02: PMs ended their turn with free dev slots and launchable tickets, and slept
+        # until a message arrived.
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        self.session("ses_dev", f"inbox.py read {self.root} dev-R-1", 2, to="dev-R-1")
+        inbox.send(self.root, "PM-ui", "PO", "x")
+        inbox.send(self.root, "dev-R-1", "PO", "x")
+        self.assertEqual(self.nudge(10), [])                  # idle 10 min: let it be
+        self.assertEqual(len(self.nudge(25)), 1)               # devs are never nudged
+        self.assertIn("Barrido automático: PM-ui lleva 25 min", self.sent[0][1])
+        self.db.execute("insert into session_message values ('ses_ui','user',3,?)",
+                        (json.dumps({"content": [{"type": "text", "text": self.sent[0][1]}]}),))
+        self.db.commit()
+        self.assertIn("already nudged", self.nudge(60)[0])    # it answered: wait for news
+        self.assertEqual(len(self.sent), 1)
+        self.db.execute("insert into session_message values ('ses_ui','user',4,'Automatic wake')")
+        self.db.commit()
+        self.nudge(90)                                         # something happened: nudge again
+        self.assertEqual(len(self.sent), 2)
+
+    def test_sweep_skips_busy_and_retired_pms(self):
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui", busy=True)
+        inbox.send(self.root, "PM-ui", "PO", "x")
+        self.assertEqual(self.nudge(25), [])
+        self.db.execute("update session_v2 set time_busy = 1, time_idle = 2")
+        self.db.commit()
+        self.assertEqual(self.nudge(13 * 60), [])             # idle 13 h: a retired PM
+        self.assertEqual(self.sent, [])
+
+
 if __name__ == "__main__":
     unittest.main()
