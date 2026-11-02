@@ -82,8 +82,13 @@ instead:
   that line's file (ask its PM to write it, since a line file has one writer); one for every line
   goes to `PROJECT.md` once the PO confirms. A PM that receives every decision and writes them all
   in its own line makes every other PM load them.
-- Move superseded directives and those of closed tickets to `## Archived` at the end; everything
-  from `## Archived` down is never printed. The words move unchanged.
+- Move superseded directives to `## Archived` at the end; everything from `## Archived` down is
+  never printed. The words move unchanged.
+- **A closed ticket does not retire its decisions.** «Minimum order 100 USD», answered at a STOP
+  point, governs the product long after that ticket closes: it stays `in force`. Only what ended
+  with the work is archived: an executed authorization, or a nuance about how to do that one ticket
+  («run the suite once»). When unsure, it stays `in force`: a heavy anchor costs tokens, a hidden
+  rule costs drift.
 - If what remains still doesn't fit (more than 60 lines or 12 KB, `--max-anchor-lines`,
   `--max-anchor-bytes`), the work has too many open fronts: rule 7 applies.
 

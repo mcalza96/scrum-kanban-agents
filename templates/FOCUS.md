@@ -36,5 +36,6 @@ States: `active`, `paused`, `closed (YYYY-MM-DD)`. An epic's objective lives in 
 
 ## Archived
 
-<superseded directives, directives of closed tickets, and executed one-shot authorizations
+<superseded directives, executed one-shot authorizations, and nuances that only governed how a
+closed ticket was done (a product rule decided at a STOP stays in force after its ticket closes)
 (`executed (<report>)`), moved here unchanged; never summarized>
