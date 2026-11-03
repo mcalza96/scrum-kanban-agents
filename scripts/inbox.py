@@ -43,6 +43,7 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ROW = re.compile(r"^\|\s*(M-\d+)\s*\|(.*)\|\s*$")
 CELL = re.compile(r"(?<!\\)\|")  # a message may hold escaped pipes
 FMT = "%Y-%m-%d %H:%M %z"
+AVISO_IMPERATIVOS = ("haz", "avanza", "pide", "corrige", "lanza", "revisa", "cierra")
 
 
 @dataclass
@@ -94,6 +95,22 @@ def mailboxes(root: str) -> list[str]:
     return sorted(os.path.basename(p)[:-3] for p in glob.glob(os.path.join(root, "*.md")))
 
 
+def _aviso_imperativo(text: str) -> str | None:
+    """Si text es [aviso] y trae imperativo en las primeras palabras, retorna el verbo."""
+    m = re.match(r"\s*\[aviso\]\s*(.*)", text, re.IGNORECASE)
+    if not m:
+        return None
+    resto = m.group(1).strip()
+    if not resto:
+        return None
+    palabras = re.split(r"\s+", resto)[:4]
+    for p in palabras:
+        limpio = re.sub(r"[^a-záéíóúñ]", "", p.lower())
+        if limpio in AVISO_IMPERATIVOS:
+            return limpio
+    return None
+
+
 def _locked_update(path: str, change) -> str:
     """Apply change(text) -> (new_text, result) under an exclusive lock: PMs write concurrently."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -113,6 +130,9 @@ def send(root: str, to: str, sender: str, text: str, when: str | None = None) ->
         raise ValueError("empty message")
     if not NAME.match(sender):
         raise ValueError(f"bad sender {sender!r}")
+    adv = _aviso_imperativo(text)
+    if adv:
+        print(f"advertencia: [aviso] con imperativo '{adv}' — si pide hacer algo usa [encargo] (references/inbox.md)", file=sys.stderr)
 
     def change(old: str):
         old = old or HEADER.format(pm=to)

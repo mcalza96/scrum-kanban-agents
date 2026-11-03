@@ -143,6 +143,34 @@ class WakeTest(unittest.TestCase):
         self.assertEqual(wake.held([msg("[Decisión] elige", 19)], 900, now), 0)
         self.assertEqual(wake.held([msg("listo", 19)], 0, now), 0)  # a mailbox without a hold
 
+    def test_encargo_wakes_at_once_CAL28(self):
+        # CAL-28: [encargo] reemplaza [decision] y despierta al tiro (URGENT)
+        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
+        def msg(text, minute):
+            sent = now.replace(minute=minute).strftime(inbox.FMT)
+            return inbox.Message("M-1", "PM-ui", sent, text, "unread")
+        # Si URGENT no incluye encargo, held devolvería >0 y el test falla
+        self.assertEqual(wake.held([msg("[encargo] avanza tus pending", 19)], 900, now), 0)
+        self.assertEqual(wake.held([msg("[ENCARGO] haz el cierre", 19)], 900, now), 0)
+        self.assertIsNotNone(wake.URGENT.match("[encargo] haz esto"))
+        self.assertIsNotNone(wake.URGENT.search("[encargo] haz esto"))
+        # Prueba de que falla sin el cambio: si se borra encargo de URGENT, held sería 900-120=780
+        self.assertTrue(wake.held([msg("[encargo] test", 19)], 900, now) == 0,
+                        "CAL-28: [encargo] debe despertar al tiro")
+
+    def test_decision_still_alias_CAL28(self):
+        # CAL-28: [decision] sigue como alias de [encargo] y despierta al tiro
+        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
+        def msg(text, minute):
+            sent = now.replace(minute=minute).strftime(inbox.FMT)
+            return inbox.Message("M-1", "PM-ui", sent, text, "unread")
+        self.assertEqual(wake.held([msg("[decision] elige opción A o B", 19)], 900, now), 0)
+        self.assertEqual(wake.held([msg("[decisión] elige", 19)], 900, now), 0)
+        self.assertEqual(wake.held([msg("[DECISION] elige", 19)], 900, now), 0)
+        self.assertIsNotNone(wake.URGENT.match("[decision] haz esto"))
+        self.assertIsNotNone(wake.URGENT.match("[decisión] haz esto"))
+        # Si se quita decisi[oó]n de URGENT, estos held serían >0 y el test falla
+
     def test_the_po_holds_avisos_until_a_bloqueo_arrives(self):
         self.session("ses_po", f"inbox.py read {self.root} PO", 1)
         inbox.send(self.root, "PO", "PM-ui", "SIM-1 cerrado")

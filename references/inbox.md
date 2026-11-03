@@ -13,14 +13,17 @@ nothing shows whether the other PM read it.
 - A message is a pointer plus one or two sentences: the hash, the ticket, the file. Anything longer
   goes in a file the message names.
 - Only `send` and `ack` write the file. Nobody edits a row by hand.
-- **Every message starts with its kind:** `[bloqueo]`, `[decision]` or `[aviso]`. A message without
-  one is an aviso.
-  - `[bloqueo]`: work stopped until the addressee answers. It wakes at once.
-  - `[decision]`: the addressee must decide or act (an instruction, a question with options). It
-    wakes at once.
-  - `[aviso]`: for the record (closed, launched, corrected). It does not wake the PO right away:
-    the PO's avisos wait until the oldest is 15 minutes old, and then the PO wakes once for all of
-    them (D-282).
+- **Every message starts with its kind:** `[bloqueo]`, `[encargo]` or `[aviso]`. A message without
+  one is an aviso. `[decision]` se acepta como alias de `[encargo]` (mensajes viejos y agentes que
+  aún no se enteran).
+  - `[bloqueo]`: trabajo detenido hasta que el destinatario responda. Despierta al tiro.
+  - `[encargo]` (`[decision]` es alias): el destinatario debe hacer y responder con el resultado
+    —el commit, la fila o la ruta—; si no puede, responde con un `[bloqueo]` que diga por qué.
+    `ack` o `recibido` no cuenta como respuesta. Despierta al tiro.
+  - `[aviso]`: para dejar constancia (cerrado, lanzado, corregido). No lleva instrucciones; si pide
+    hacer algo es un `[encargo]` aunque diga `[aviso]`, y el destinatario lo trata como encargo.
+    No despierta al PO de inmediato: los avisos al PO esperan hasta que el más antiguo tenga 15
+    minutos, y entonces el PO despierta una vez por todos ellos (D-282).
 
 ## The mailbox stays short
 
@@ -88,7 +91,8 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   `--auto`: permission prompts still go to the human.
 - **Avisos to a mailbox with a hold wait.** `HOLD` in `wake.py` (today only `PO`, 15 minutes) keeps
   avisos until the oldest has waited that long, then wakes once for all of them. The waker polls
-  meanwhile, so a `[bloqueo]` or `[decision]` that arrives during the hold wakes at once.
+  meanwhile, so a `[bloqueo]` o un `[encargo]` (`[decision]` es alias) que llegue durante la espera
+  despierta al tiro.
 - **At most 40 wakes per PM per rolling hour.** Past that the message waits for the human. No id
   wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
   ack, which also changes the mailbox, wakes nobody.

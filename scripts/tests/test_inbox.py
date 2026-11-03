@@ -100,6 +100,41 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(run(["ack", self.root, "PM-ui", "M-1"])[0], 2)
         self.assertEqual(run(["check", self.root]), (0, "ok\n"))
 
+    def test_aviso_con_imperativo_advierte_CAL28(self):
+        # CAL-28: [aviso] con imperativo en primeras palabras advierte en stderr y no bloquea
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            mid = inbox.send(self.root, "PM-ui", "PO", "[aviso] avanza tus pending")
+        self.assertEqual(mid, "M-1")
+        self.assertIn("advertencia", err.getvalue().lower())
+        self.assertIn("avanza", err.getvalue().lower())
+        self.assertIn("[encargo]", err.getvalue())
+        # el mensaje se envía igual
+        self.assertEqual(inbox.messages(self.root, "PM-ui")[0].text, "[aviso] avanza tus pending")
+        # prueba de que falla: si se quita el aviso check, err sería vacío
+        self.assertTrue(err.getvalue() != "", "CAL-28: [aviso] con 'avanza' debe advertir")
+        # otros imperativos también advierten
+        for verb in inbox.AVISO_IMPERATIVOS:
+            tmp = tempfile.TemporaryDirectory()
+            root2 = os.path.join(tmp.name, "inbox")
+            eout, eerr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(eout), contextlib.redirect_stderr(eerr):
+                inbox.send(root2, "PM-ui", "PO", f"[aviso] {verb} algo")
+            self.assertIn(verb, eerr.getvalue().lower(), f"debe advertir con '{verb}'")
+            tmp.cleanup()
+        # [aviso] sin imperativo no advierte
+        eout, eerr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(eout), contextlib.redirect_stderr(eerr):
+            inbox.send(self.root, "PM-ui", "PO", "[aviso] SIM-26 cerrado en 53577e73")
+        self.assertEqual(eerr.getvalue(), "")
+        # [encargo] con verbo no advierte (no es aviso)
+        eout, eerr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(eout), contextlib.redirect_stderr(eerr):
+            inbox.send(self.root, "PM-ui", "PO", "[encargo] avanza tus pending")
+        self.assertEqual(eerr.getvalue(), "")
+        # lista en un solo lugar
+        self.assertEqual(set(inbox.AVISO_IMPERATIVOS), {"haz", "avanza", "pide", "corrige", "lanza", "revisa", "cierra"})
+
 
 if __name__ == "__main__":
     unittest.main()
