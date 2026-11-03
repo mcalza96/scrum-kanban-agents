@@ -22,6 +22,15 @@ nothing shows whether the other PM read it.
     the PO's avisos wait until the oldest is 15 minutes old, and then the PO wakes once for all of
     them (D-282).
 
+## The mailbox stays short
+
+The sweep runs `scripts/archivar.py` (D-283). Read rows older than 48 hours move to
+`inbox/archivo/<mailbox>-AAAA-MM.md`; unread rows and the newest row never move, so ids are not
+handed out twice. Lines of `.wakes.log` older than 7 days move to `inbox/archivo/wakes-AAAA-MM.log`.
+The same pass moves `closed` rows of every `STATUS.md` to `STATUS-archivo.md`, except the 5 most
+recently updated, and directives `executed` or `superseded` below `## Archived` in the focus files.
+It moves and never deletes; whoever commits a file commits its archive too.
+
 ## When a PM writes
 
 - **On closing a ticket that unblocks another lane:** to that lane's PM, with the hash.

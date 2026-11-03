@@ -38,7 +38,9 @@ happens in its session.
 
 The sweep then runs `stale_worktrees.py <repo> --reap` on the repo that holds inbox/ (DoD 9):
 worktrees with no git activity for a day go, saved first as `conserva/wt-<name>` when they hold
-work, and agent postgres with no client go down. Each line it prints is logged.
+work, and agent postgres with no client go down. Each line it prints is logged. Last it runs
+`scripts/archivar.py` on the repo (D-283): old read mail, old wake lines, closed STATUS rows and done
+directives move to their archive files.
 """
 from __future__ import annotations
 
@@ -55,6 +57,7 @@ import time
 import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
+import archivar  # noqa: E402
 import inbox  # noqa: E402
 import stale_worktrees  # noqa: E402
 
@@ -352,6 +355,9 @@ def main(argv: list[str]) -> int:
         root = os.path.abspath(argv[1])
         print("\n".join(sweep(root)) or "nobody idle")
         print("\n".join(reap(root)))
+        for line in archivar.archive(os.path.dirname(root)):
+            log(root, "archivo", line)
+            print(line)
         return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)

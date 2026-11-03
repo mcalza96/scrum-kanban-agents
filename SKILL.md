@@ -207,6 +207,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
+| `scripts/archivar.py` | Moves read mail, old wake lines, closed STATUS rows and done directives to archive files (run by the sweep) |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
