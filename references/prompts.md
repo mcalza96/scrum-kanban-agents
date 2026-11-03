@@ -28,6 +28,14 @@ prompt points to, the dev does not know it.
    gets the answer «new session». Don't send follow-up questions to a session that has already
    reported. Put them in the next task's prompt.
 
+9. **End with the close block of the template, always.** Deliverable at an exact path, the epic's
+   commit rule, report, row in `reported`, and a mailbox notice to the PM. It is the same when the
+   deliverable is a plan or a ticket and not code. Why: on 2026-11-03 the prompts for R-37 and
+   R-38 asked only for a ticket file. Both devs wrote it (19:10 and 19:59), but none set a row or
+   wrote to the PM. The PM looked in the worktrees and the commits, found nothing, and launched
+   the same work two more times. Before relaunching, the PM opens the declared path (Definition of
+   Done, item 1).
+
 Template: `templates/PROMPT.md`.
 
 ## Lanzamiento vía servicio (CAL-25, D-278) — reemplaza `subagent` para devs
