@@ -28,6 +28,13 @@ y --codex (ruta absoluta del CLI). RunAtLoad permite recoger mensajes al iniciar
 El estado guarda IDs bajo flock; ack y reescrituras no reenvían mensajes ya encolados.
 El puente no hace ack. Los contenidos del buzón se leen con inbox.py, no se ejecutan como código.
 
+Desde D-263 el puente mantiene un solo aviso pendiente mientras el PO trabaja. Al terminar,
+el PO relee el buzón y ejecuta el comando `--complete` incluido en el aviso, con `--observed`
+seguido de todos los IDs que vio en la ronda (incluidos los que siguen pendientes de decisión).
+Bajo el mismo candado, el puente libera el aviso y encola una sola vez los IDs que llegaron
+después de la lectura. El heartbeat también completa la ronda para recuperar interrupciones;
+si el chat no pudo reanudarse, la entrega inmediata sigue sin estar garantizada.
+
 **Encolado no equivale a despertar.** CLI 0.166.0-alpha.5.1 puede devolver exit 0 con warning si
 resume falla. El puente conserva el recibo de cola para evitar duplicados y registra el warning.
 En la prueba real Desktop mantuvo el chat con `already has an active writer`: no se confirmó

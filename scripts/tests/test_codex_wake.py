@@ -34,12 +34,33 @@ class CodexWakeTest(unittest.TestCase):
         self.wake()
         self.wake()
         w.inbox.ack(str(self.root), 'PO', ['M-1'])
-        self.wake()
+        w.wake(self.root, 'thread-id', self.state, '/bin/codex', self.run_queue,
+               complete=True, observed=['M-1'])
         w.inbox.send(str(self.root), 'PO', 'PM-ui', 'two')
         self.wake()
         self.assertEqual(len(self.calls), 2)
         self.assertIn('M-2', self.calls[1][5])
         self.assertEqual(self.calls[0][-1], '--resume')
+
+    def test_messages_arriving_during_turn_are_coalesced_and_rechecked(self):
+        w.inbox.send(str(self.root), 'PO', 'PM-ui', 'first')
+        self.wake()
+        for _ in range(5):
+            w.inbox.send(str(self.root), 'PO', 'PM-ui', 'next')
+            self.wake()
+        self.assertEqual(len(self.calls), 1)
+        w.inbox.ack(str(self.root), 'PO', ['M-1', 'M-2', 'M-3', 'M-4', 'M-5'])
+        w.wake(self.root, 'thread-id', self.state, '/bin/codex', self.run_queue,
+               complete=True, observed=['M-1', 'M-2', 'M-3', 'M-4', 'M-5'])
+        self.assertEqual(len(self.calls), 2)
+        self.assertIn('M-6', self.calls[1][5])
+
+    def test_observed_but_unacked_is_not_requeued(self):
+        w.inbox.send(str(self.root), 'PO', 'PM-ui', 'blocked')
+        self.wake()
+        w.wake(self.root, 'thread-id', self.state, '/bin/codex', self.run_queue,
+               complete=True, observed=['M-1'])
+        self.assertEqual(len(self.calls), 1)
 
     def test_queue_failure_does_not_consume_event(self):
         w.inbox.send(str(self.root), 'PO', 'PM-ui', 'one')
