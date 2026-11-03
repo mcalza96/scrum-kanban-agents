@@ -39,6 +39,15 @@ La automatización heartbeat de este chat ejecuta además la ronda cada 30 minut
 Permanece silenciosa sin cambios relevantes. No arranques tail -F: los ack reescriben el archivo
 y ese método ya reprodujo mensajes antiguos. No mantengas simultáneamente dos PO activos.
 
+## Trabajos largos sin bloquear al PO
+
+Lanza suites, builds y mediciones largas con salida a archivo y conserva el identificador de
+proceso/sesión. Mientras corren, atiende buzones, revisa artefactos, distribuye bloqueos y avanza
+trabajo independiente. No bloquees varios minutos el turno solo esperando una terminal si queda
+trabajo accionable. Retoma el resultado cuando sea necesario para la siguiente decisión; no
+relances la corrida ni hagas sondeo con sleep. Si el turno termina, deja comando, SHA, log y
+seguimiento en el traspaso. Un proceso en curso nunca cuenta como gate verde.
+
 ## Envío y devs
 
 inbox.py send escribe bajo candado. El watcher ya instalado en opencode observa los buzones de los
