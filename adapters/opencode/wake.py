@@ -17,6 +17,11 @@ It finds the PM's session in opencode's database: the newest top-level session t
 - No session found, a session busy for more than WAIT seconds, or no unread left: it logs and
   stops. `inbox.py check` still catches what nobody read.
 
+- A session whose last turn ended in an error (`outcome: failed` in opencode) is reported to the PO's
+  mailbox, once per failed turn, and the sweep stops nudging it. Why: on 2026-11-02 two PMs had
+  failed every wake for hours (the provider rejected their history with a 400) while the log said
+  "woke" and "nudged", and 11 messages sat unread with nobody knowing.
+
 Every decision is one line in inbox/.wakes.log, which is also what the cap counts.
 
 The sweep exists because a PM that ends its turn sleeps until a message arrives, even with free
@@ -154,6 +159,42 @@ def busy(db: sqlite3.Connection, sid: str) -> bool:
     return (b or 0) > (i or 0)
 
 
+def failed_turn(db: sqlite3.Connection, sid: str) -> tuple[float, str] | None:
+    """(when, error) if the session's last turn ended in a failure, else None."""
+    row = db.execute("select time_created, data from session_message where session_id = ?"
+                     " and type = 'idle' order by time_created desc limit 1", (sid,)).fetchone()
+    try:
+        data = json.loads(row[1]) if row else {}
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("outcome") != "failed":
+        return None
+    err = data.get("error") or {}
+    return row[0], (err.get("message") if isinstance(err, dict) else str(err)) or "unknown error"
+
+
+def alert_failed(db: sqlite3.Connection, root: str, pm: str, sid: str) -> str | None:
+    """Tell PO, once per failed turn, that pm's session fails when woken: waking it again would fail
+    the same way, and nobody reads its mailbox until someone relaunches it."""
+    failed = failed_turn(db, sid)
+    if not failed:
+        return None
+    mark = f"failed {sid} {failed[0]:.0f}"
+    try:
+        with open(log_path(root), encoding="utf-8") as f:
+            if any(mark in line for line in f):
+                return mark
+    except FileNotFoundError:
+        pass
+    log(root, pm, f"{mark}: {failed[1]}")
+    unread = [m.id for m in inbox.messages(root, pm) if m.unread]
+    inbox.send(root, "PO", "barrido",
+               f"{pm} no responde: su sesión {sid} terminó su último turno con error ({failed[1]}). "
+               f"Tiene {len(unread)} sin leer. Despertarla de nuevo falla igual: relánzalo en una "
+               f"sesión nueva que lea su buzón.")
+    return mark
+
+
 def opencode() -> str:
     return shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
 
@@ -201,6 +242,9 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
             idle_for = now - (db.execute("select time_idle from session_v2 where id = ?",
                                          (sid,)).fetchone()[0] or 0) / 1000
             if busy(db, sid) or not idle <= idle_for <= stale:
+                continue
+            if alert_failed(db, root, pm, sid):
+                done.append(f"{pm} {sid}: its last turn failed, the PO was told")
                 continue
             if NUDGE_MARK in last_prompt(db, sid):
                 done.append(f"{pm} {sid}: already nudged, waiting for news")
@@ -269,6 +313,9 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
         log(root, pm, what)
         script = os.path.abspath(inbox.__file__)
         send(sid, TEXT.format(pm=pm, ids=", ".join(unread), script=script, root=root))
+        if alert_failed(db, root, pm, sid):
+            what = f"{what}; the turn failed, the PO was told"
+            break
     return what
 
 

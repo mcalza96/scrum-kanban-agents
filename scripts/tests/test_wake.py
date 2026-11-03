@@ -146,6 +146,44 @@ class WakeTest(unittest.TestCase):
         self.nudge(90)                                         # something happened: nudge again
         self.assertEqual(len(self.sent), 2)
 
+    def fail_turn(self, sid, t, message="reasoning `encrypted_content` was not issued"):
+        self.db.execute("insert into session_message values (?,'idle',?,?)",
+                        (sid, t, json.dumps({"outcome": "failed", "error": {"message": message}})))
+        self.db.commit()
+
+    def po(self):
+        return [m.text for m in inbox.messages(self.root, "PO")]
+
+    def test_a_pm_whose_turn_fails_is_reported_to_the_po_once(self):
+        # 2026-11-02: PM-superficie and PM-calidad failed every wake for hours with a 400 while the
+        # log said "woke" and "nudged"; 11 messages sat unread and nobody knew.
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        inbox.send(self.root, "PM-ui", "PO", "one")
+        failing = lambda sid, text: self.sent.append(sid) or self.fail_turn(sid, 10 + len(self.sent))
+        self.assertIn("the turn failed", wake.run(self.root, "PM-ui", send=failing, wait=0, poll=0))
+        self.assertEqual(len(self.po()), 1)
+        self.assertIn("PM-ui no responde", self.po()[0])
+        self.assertIn("encrypted_content", self.po()[0])
+        self.assertIn("Tiene 1 sin leer", self.po()[0])
+
+        self.assertIn("last turn failed", self.nudge(25)[0])   # same failed turn: not told twice
+        self.assertEqual(len(self.po()), 1)
+        self.assertEqual(len(self.sent), 1)                    # and the sweep does not nudge it
+
+        self.fail_turn("ses_ui", 20)                           # a new failed turn: told again
+        self.nudge(30)
+        self.assertEqual(len(self.po()), 2)
+
+    def test_a_turn_that_ends_well_raises_no_alarm(self):
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        self.fail_turn("ses_ui", 2)
+        self.db.execute("insert into session_message values ('ses_ui','idle',3,?)",
+                        (json.dumps({"outcome": "succeeded"}),))
+        self.db.commit()
+        inbox.send(self.root, "PM-ui", "PO", "one")
+        self.assertEqual(self.wake(), "nothing new unread")
+        self.assertEqual(self.po(), [])
+
     def test_sweep_skips_busy_and_retired_pms(self):
         self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui", busy=True)
         inbox.send(self.root, "PM-ui", "PO", "x")
