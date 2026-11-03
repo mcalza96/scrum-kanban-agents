@@ -25,8 +25,9 @@ It finds the PM's session in opencode's database: the newest top-level session t
 - Every message has a kind, the first word of its text: `[bloqueo]`, `[decision]` or `[aviso]`; a
   message with none is an aviso. A bloqueo or a decision wakes at once. A mailbox with a HOLD keeps
   its avisos until the oldest has waited that long, then wakes once for all of them; the waker polls
-  meanwhile, so a bloqueo that arrives during the hold still wakes at once. Why (D-282, 2026-11-03):
-  the PO got 196 messages from PMs in 24 h and 25 wakes in half an hour, nearly all status echoes.
+  meanwhile, so a bloqueo that arrives during the hold still wakes at once. Why
+  (D-282, 2026-11-03): the PO got 196 messages from PMs in 24 h and 25 wakes in half an hour, nearly
+  all status echoes.
 
 Every decision is one line in inbox/.wakes.log, which is also what the cap counts.
 
@@ -46,6 +47,7 @@ from __future__ import annotations
 
 import datetime
 import fcntl
+import glob
 import json
 import os
 import re
@@ -257,6 +259,259 @@ def last_prompt(db: sqlite3.Connection, sid: str) -> str:
                                   (sid,)).fetchone())
 
 
+def _ticket_from_title(title: str | None) -> str | None:
+    if not title:
+        return None
+    m = re.search(r"dev\s+([\w-]+)", title, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _ticket_from_prompt(db: sqlite3.Connection, sid: str) -> str | None:
+    row = db.execute("select data from session_message where session_id = ? and type = 'user'"
+                     " order by time_created limit 1", (sid,)).fetchone()
+    txt = message_text(row) if row else ""
+    m = re.search(r"TO:\s*dev\s+([\w-]+)", txt, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # fallback on raw prompt_text (json dumped)
+    raw = prompt_text(row) if row else ""
+    m2 = re.search(r"TO:\s*dev\s+([\w-]+)", raw, re.IGNORECASE)
+    return m2.group(1) if m2 else None
+
+
+def _commits_of(db: sqlite3.Connection, sid: str) -> list[str]:
+    rows = db.execute("select data from session_message where session_id = ? and type = 'assistant'"
+                      " and data like '%git commit%'", (sid,)).fetchall()
+    shas: list[str] = []
+    seen: set[str] = set()
+    for (data,) in rows:
+        for sha in re.findall(r"\b[0-9a-f]{7,40}\b", data, re.IGNORECASE):
+            low = sha.lower()
+            if low not in seen:
+                # evita falsos positivos muy cortos que sean palabras comunes
+                if len(sha) >= 7:
+                    seen.add(low)
+                    shas.append(sha)
+    return shas
+
+
+def _has_inbox_send(db: sqlite3.Connection, sid: str) -> bool:
+    row = db.execute("select 1 from session_message where session_id = ? and type = 'assistant'"
+                     " and data like '%inbox.py send%' limit 1", (sid,)).fetchone()
+    return row is not None
+
+
+def _last_idle_outcome(db: sqlite3.Connection, sid: str) -> str | None:
+    row = db.execute("select data from session_message where session_id = ? and type = 'idle'"
+                     " order by time_created desc limit 1", (sid,)).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(row[0])
+    except ValueError:
+        return None
+    if isinstance(data, dict):
+        return data.get("outcome")
+    return None
+
+
+def _is_dev(parent_id, title) -> bool:
+    if parent_id is not None:
+        return True
+    if title and isinstance(title, str) and title.lower().lstrip().startswith("dev"):
+        return True
+    # también title LIKE 'dev %' (con espacio) ya cubierto
+    return False
+
+
+def _is_reported(ticket: str | None, repo: str) -> bool:
+    if not ticket:
+        return False
+    # solo lectura, busca en epic-*/STATUS.md y STATUS*.md
+    patterns = [os.path.join(repo, "epic-*", "STATUS.md"),
+                os.path.join(repo, "epic-*", "STATUS-*.md")]
+    for pat in patterns:
+        for path in glob.glob(pat):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        if ticket in line and "reported" in line.lower():
+                            return True
+            except Exception:
+                continue
+    return False
+
+
+def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
+                parent_id) -> str:
+    # 1) inbox/.lanzar/log
+    lp = os.path.join(root, ".lanzar", "log")
+    try:
+        with open(lp, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("session") == sid and e.get("pm"):
+                    return e["pm"]
+    except FileNotFoundError:
+        pass
+    # 2) addressee del dev — solo si es PM/PO, no "dev"
+    try:
+        pm = addressee(db, sid)
+        if pm and (pm.startswith("PM-") or pm == "PO"):
+            return pm
+    except Exception:
+        pass
+    # 3) parent
+    if parent_id:
+        try:
+            pm2 = addressee(db, parent_id)
+            if pm2 and (pm2.startswith("PM-") or pm2 == "PO"):
+                return pm2
+        except Exception:
+            pass
+        # fallback: parent may be a dev too, try its parent recursively? busca por title en STATUS
+        # si parent no tiene PM, busca el PM del ticket en STATUS
+
+    # 4) signers
+    try:
+        s = signers(db, sid)
+        for n in s:
+            if n.startswith("PM-"):
+                return n
+        if s:
+            return next(iter(s))
+    except Exception:
+        pass
+    # 5) inferir del ticket en STATUS
+    ticket = _ticket_from_title(title) or _ticket_from_prompt(db, sid)
+    if ticket:
+        repo = os.path.dirname(os.path.abspath(root))
+        for pat in [os.path.join(repo, "epic-*", "STATUS.md"),
+                    os.path.join(repo, "epic-*", "STATUS-*.md")]:
+            for path in glob.glob(pat):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        for line in f:
+                            if ticket in line:
+                                m = re.search(r"PM-[\w-]+", line)
+                                if m:
+                                    return m.group(0)
+                except Exception:
+                    continue
+    return "PO"
+
+
+def reap_finished(root: str, db_path: str = DB) -> list[str]:
+    """Avisa al PM cuando un dev termina bien (succeeded) y no avisó por buzón.
+
+    Escanea session_v2 donde time_idle > time_busy y outcome=='succeeded' (último idle),
+    filtra devs (parent_id IS NOT NULL OR lower(title) LIKE 'dev%'), verifica que no hay
+    inbox.py send previo, y si no está en inbox/.lanzar/.aviso-dev (flock, una línea por sid)
+    envía vía inbox.send(root, pm, "lanzador", msg) con ticket, session id, commits y
+    reported sí/no. Un aviso por sesión, no edita STATUS, no cuenta para CAP.
+    """
+    if not os.path.exists(db_path):
+        return []
+    aviso_path = os.path.join(root, ".lanzar", ".aviso-dev")
+    os.makedirs(os.path.dirname(aviso_path), exist_ok=True)
+    repo = os.path.dirname(os.path.abspath(root))
+    done: list[str] = []
+    # 1) recolecta candidatos fuera del lock (DB)
+    candidates: list[tuple[str, str | None, str | None]] = []  # (sid, title, parent_id)
+    try:
+        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except Exception:
+        return []
+    try:
+        # intenta con title, si falla (tests sin title) reintenta sin title
+        try:
+            rows = db.execute("select id, parent_id, title, time_busy, time_idle from session_v2").fetchall()
+        except sqlite3.OperationalError:
+            rows = db.execute("select id, parent_id, time_busy, time_idle from session_v2").fetchall()
+            rows = [(r[0], r[1], None, r[2], r[3]) for r in rows]
+        for sid, parent_id, title, busy, idle in rows:
+            try:
+                if (busy or 0) >= (idle or 0):
+                    continue
+            except Exception:
+                continue
+            if not _is_dev(parent_id, title):
+                continue
+            out = _last_idle_outcome(db, sid)
+            if out != "succeeded":
+                continue
+            if _has_inbox_send(db, sid):
+                continue
+            candidates.append((sid, title, parent_id))
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+    if not candidates:
+        return []
+    # 2) dedup con flock y envío
+    # abrimos DB de nuevo dentro del lock para resolver ticket/pm/commits sin carrera
+    try:
+        db2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except Exception:
+        return []
+    try:
+        # lock file .aviso-dev
+        with open(aviso_path, "a+", encoding="utf-8") as af:
+            try:
+                fcntl.flock(af, fcntl.LOCK_EX)
+            except Exception:
+                pass
+            af.seek(0)
+            seen = {line.strip() for line in af if line.strip()}
+            for sid, title, parent_id in candidates:
+                if sid in seen:
+                    continue
+                # re-verifica has_send por si cambió entre colecta y lock
+                if _has_inbox_send(db2, sid):
+                    seen.add(sid)
+                    continue
+                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
+                # si ticket es "?" y no hay report, igual avisa con ticket desconocido
+                pm = _resolve_pm(db2, root, sid, title, parent_id)
+                shas = _commits_of(db2, sid)
+                reported = _is_reported(ticket if ticket != "?" else None, repo)
+                commits_txt = " ".join(shas) if shas else "—"
+                reported_txt = "sí" if reported else "no"
+                msg = (f"{ticket} dev {sid} terminó: commits {commits_txt} | "
+                       f"reported: {reported_txt} | session {sid}")
+                try:
+                    inbox.send(root, pm, "lanzador", msg)
+                except Exception:
+                    continue
+                af.write(sid + "\n")
+                af.flush()
+                seen.add(sid)
+                done.append(f"{pm} {sid} {ticket}: aviso lanzador")
+            # ensure persisted
+            try:
+                af.flush()
+            except Exception:
+                pass
+            try:
+                fcntl.flock(af, fcntl.LOCK_UN)
+            except Exception:
+                pass
+    finally:
+        try:
+            db2.close()
+        except Exception:
+            pass
+    return done
+
+
 def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float = STALE,
           send=None) -> list[str]:
     """Nudge every idle PM once per idle stretch. Returns one decision per PM with a session."""
@@ -264,7 +519,12 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
         [opencode(), "run", "--session", sid, text],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
     now = time.time() if now is None else now
-    done = []
+    done: list[str] = []
+    # CAL-27: aviso de dev terminado, un solo punto que cubre 100% (barrido). No cuenta para CAP.
+    try:
+        done.extend(reap_finished(root, DB))
+    except Exception:
+        pass
     db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     try:
         for pm in inbox.mailboxes(root):
