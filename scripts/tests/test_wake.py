@@ -106,6 +106,39 @@ class WakeTest(unittest.TestCase):
         self.assertEqual(len(texts), 2)  # M-3 arrived during the M-2 turn: one more
         self.assertIn("(M-1, M-2, M-3)", texts[1])
 
+    def test_avisos_wait_the_hold_and_a_bloqueo_does_not(self):
+        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
+        def msg(text, minute):
+            sent = now.replace(minute=minute).strftime(inbox.FMT)
+            return inbox.Message("M-1", "PM-ui", sent, text, "unread")
+        self.assertAlmostEqual(wake.held([msg("listo", 15)], 900, now), 600)  # 5 of 15 min waited
+        self.assertEqual(wake.held([msg("listo", 1)], 900, now), 0)  # waited the whole hold
+        self.assertEqual(wake.held([msg("listo", 19), msg("[bloqueo] sin base", 19)], 900, now), 0)
+        self.assertEqual(wake.held([msg("[Decisión] elige", 19)], 900, now), 0)
+        self.assertEqual(wake.held([msg("listo", 19)], 0, now), 0)  # a mailbox without a hold
+
+    def test_the_po_holds_avisos_until_a_bloqueo_arrives(self):
+        self.session("ses_po", f"inbox.py read {self.root} PO", 1)
+        inbox.send(self.root, "PO", "PM-ui", "SIM-1 cerrado")
+        slept = []
+        real = wake.time.sleep
+        wake.time.sleep = lambda s: slept.append(s) or (
+            len(slept) == 2 and inbox.send(self.root, "PO", "PM-ui", "[bloqueo] falta la base"))
+        try:
+            wake.run(self.root, "PO", send=self.send, wait=0, poll=1)
+        finally:
+            wake.time.sleep = real
+        self.assertEqual(len(self.sent), 1)  # one wake for both, right after the bloqueo
+        self.assertIn("(M-1, M-2)", self.sent[0][1])
+        with open(wake.log_path(self.root)) as f:
+            self.assertEqual(sum(" PO held M-1" in line for line in f), 1)  # logged once
+
+    def test_other_mailboxes_are_not_held(self):
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1)
+        inbox.send(self.root, "PM-ui", "PO", "un aviso")
+        self.wake()
+        self.assertEqual(len(self.sent), 1)
+
     def test_cap_busy_missing_and_lock(self):
         inbox.send(self.root, "PM-ui", "PO", "one")
         self.assertTrue(self.wake().startswith("skipped: no opencode session"))

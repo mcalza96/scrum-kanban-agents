@@ -13,6 +13,14 @@ nothing shows whether the other PM read it.
 - A message is a pointer plus one or two sentences: the hash, the ticket, the file. Anything longer
   goes in a file the message names.
 - Only `send` and `ack` write the file. Nobody edits a row by hand.
+- **Every message starts with its kind:** `[bloqueo]`, `[decision]` or `[aviso]`. A message without
+  one is an aviso.
+  - `[bloqueo]`: work stopped until the addressee answers. It wakes at once.
+  - `[decision]`: the addressee must decide or act (an instruction, a question with options). It
+    wakes at once.
+  - `[aviso]`: for the record (closed, launched, corrected). It does not wake the PO right away:
+    the PO's avisos wait until the oldest is 15 minutes old, and then the PO wakes once for all of
+    them (D-282).
 
 ## When a PM writes
 
@@ -21,6 +29,22 @@ nothing shows whether the other PM read it.
   progress; if it is free, tell its PM which files and why, before starting.
 - **When it needs an answer from another PM to go on:** the question, and what waits on it.
 - A decision that belongs to the PO goes to the PO, not to another PM.
+
+## When a PM does not write
+
+Every message to the PO costs a PO turn, and one turn of the PO reads the context of the whole
+project. On 2026-11-03 the PO got 196 messages from PMs in 24 hours and 25 wakes in half an hour,
+and nearly all of them were status echoes (D-282).
+
+- **No acknowledgements.** «Recibido», «M-65 ya aplicado», «ya estaba cerrada»: the `ack` already
+  records that the message was read. Acting on a message needs no reply unless the act blocks or
+  needs a decision.
+- **No status in the mailbox.** A ticket that closed, launched or went back is a row in `STATUS.md`,
+  which the PO reads. The mailbox says only what the board cannot: a block, a question, a hand-off
+  to another lane.
+- **No corrections of your own message.** Send the right one once; if you must correct, the new
+  message says so in its first words and is an aviso.
+- **One message per turn to the same addressee.** Several things go in one message.
 
 ## Reading is enforced, not hoped for
 
@@ -53,6 +77,9 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   findable after its first read), waits up to 30 minutes for it to be idle, and sends it one turn
   that says to read the mailbox. The turn shows live in the PM's window. It does not pass
   `--auto`: permission prompts still go to the human.
+- **Avisos to a mailbox with a hold wait.** `HOLD` in `wake.py` (today only `PO`, 15 minutes) keeps
+  avisos until the oldest has waited that long, then wakes once for all of them. The waker polls
+  meanwhile, so a `[bloqueo]` or `[decision]` that arrives during the hold wakes at once.
 - **At most 40 wakes per PM per rolling hour.** Past that the message waits for the human. No id
   wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
   ack, which also changes the mailbox, wakes nobody.

@@ -22,6 +22,12 @@ It finds the PM's session in opencode's database: the newest top-level session t
   failed every wake for hours (the provider rejected their history with a 400) while the log said
   "woke" and "nudged", and 11 messages sat unread with nobody knowing.
 
+- Every message has a kind, the first word of its text: `[bloqueo]`, `[decision]` or `[aviso]`; a
+  message with none is an aviso. A bloqueo or a decision wakes at once. A mailbox with a HOLD keeps
+  its avisos until the oldest has waited that long, then wakes once for all of them; the waker polls
+  meanwhile, so a bloqueo that arrives during the hold still wakes at once. Why (D-282, 2026-11-03):
+  the PO got 196 messages from PMs in 24 h and 25 wakes in half an hour, nearly all status echoes.
+
 Every decision is one line in inbox/.wakes.log, which is also what the cap counts.
 
 The sweep exists because a PM that ends its turn sleeps until a message arrives, even with free
@@ -56,6 +62,8 @@ CAP = 40         # wakes per PM per rolling hour (owner decision, 2026-11-03)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
+HOLD = {"PO": 15 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision, D-282)
+URGENT = re.compile(r"\s*\[(bloqueo|decisi[oó]n)\]", re.IGNORECASE)
 IDLE = 20 * 60
 STALE = 12 * 3600
 NUDGE_MARK = "Barrido automático"
@@ -65,6 +73,8 @@ NUDGE = (NUDGE_MARK + ": {pm} lleva {minutes} min sin actividad. Relee tu STATUS
          "esperas y de quién.")
 TEXT = ("Automatic wake: {pm} has unread messages ({ids}). Run "
         "`python3 {script} read {root} {pm}`, act on them as the skill says, and ack after acting. "
+        "Do not reply to acknowledge or to report status: write only for a [bloqueo] or a "
+        "[decision] (references/inbox.md). "
         "If something needs the owner's decision, stop and say it in one line.")
 
 
@@ -119,6 +129,14 @@ def woken_ids(root: str, pm: str) -> set[str]:
     except FileNotFoundError:
         pass
     return ids
+
+
+def held(msgs: list, hold: float, now: datetime.datetime) -> float:
+    """Seconds left before msgs must wake: 0 when one is urgent or the oldest waited hold."""
+    if not hold or any(URGENT.match(m.text) for m in msgs):
+        return 0.0
+    ages = [inbox.age_hours(m.sent, now) for m in msgs]
+    return max(0.0, hold - max((a or 0.0) * 3600 for a in ages))
 
 
 def addressee(db: sqlite3.Connection, sid: str) -> str | None:
@@ -287,12 +305,22 @@ def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, cap: int = C
 
 
 def _loop(db, root, pm, wait, poll, cap, send) -> str:
+    holding = False
     while True:
-        unread = [m.id for m in inbox.messages(root, pm) if m.unread]
-        new = [i for i in unread if i not in woken_ids(root, pm)]
+        msgs = [m for m in inbox.messages(root, pm) if m.unread]
+        unread = [m.id for m in msgs]
+        woken = woken_ids(root, pm)
+        new = [m for m in msgs if m.id not in woken]
         if not new:
             what = "nothing new unread"
             break
+        left = held(new, HOLD.get(pm, 0), datetime.datetime.now().astimezone())
+        if left:
+            if not holding:
+                log(root, pm, f"held {' '.join(m.id for m in new)}: avisos, wake in {left / 60:.0f} min")
+                holding = True
+            time.sleep(min(poll, left))
+            continue
         sid = find_session(db, root, pm)
         if not sid:
             what = "skipped: no opencode session has run `inbox.py read` on this mailbox"
@@ -306,7 +334,7 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
             log(root, pm, what)
             break
         if wakes_last_hour(root, pm, datetime.datetime.now().astimezone()) >= cap:
-            what = f"capped: {cap} wakes in the last hour, {' '.join(new)} wait for the human"
+            what = f"capped: {cap} wakes in the last hour, {' '.join(m.id for m in new)} wait for the human"
             log(root, pm, what)
             break
         what = f"woke {sid} for {' '.join(unread)}"
