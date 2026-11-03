@@ -25,6 +25,16 @@ $ grep -n "FAIL\|ERROR" /tmp/suite.txt
 - Don't re-run the suite to see a different part of its output.
 - Paste the filtering commands as evidence, as `evidence.md` requires.
 
+## Don't repeat, don't poll
+
+- Run the full suite once per ticket, until the first green. After that, run only the files the
+  change touches, until the closing verification. The PM re-runs everything anyway.
+- Never wait with `sleep N` in a loop. Wait once, in the foreground: `wait <pid>`, the command
+  itself with a long enough timeout, or a script that blocks on its own lock. If it takes longer
+  than the timeout, raise the timeout.
+- Why: on one project, three days of dev sessions spent 66 minutes in `sleep` polling and 36
+  minutes re-running a suite that had already passed, against 235 minutes writing code.
+
 ## Timeouts
 
 - The tool timeout must be at least as long as the command. A suite killed by the agent's own

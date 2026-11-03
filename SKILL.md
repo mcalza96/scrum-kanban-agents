@@ -127,7 +127,7 @@ pending → in progress → reported → closed
     closes a ticket that unblocks that lane, before it touches that lane's files, and when it needs
     an answer to go on (`scripts/inbox.py send`). A hook puts the unread messages in front of every
     PM turn; the PM reads them first and acks them after acting, and `inbox.py check` flags the
-    ones left unread. A message to an idle PM wakes it (at most 20 times per PM per hour; past that
+    ones left unread. A message to an idle PM wakes it (at most 40 times per PM per hour; past that
     it waits for the human). Read `references/inbox.md`.
 
 ## Definition of Done
@@ -146,7 +146,7 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
    recorded the verdict.
 9. Whatever the ticket created outside the repo's tracked files is gone: worktrees, dev servers,
    ports, per-ticket build dirs (`.next-<ticket>`). Anything left alive on purpose is named in the
-   report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`).
+   report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`). The opencode sweep (`wake.py --sweep`) reaps what is left after a day.
    Why: in the project this skill comes from, 14 worktrees of closed tickets held about 8 GB, and
    nothing said whose they were.
 10. The full gate (build plus suite) passed on the **exact commit that closes the ticket**, in a
@@ -210,6 +210,6 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
-| `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind: removable, dirty, ahead, or in use |
+| `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind (removable, dirty, ahead, in use); `--reap` removes the stale ones, saving their work as `conserva/wt-<name>`, and stops idle agent postgres |
 | `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
 | `adapters/` | Tool-specific notes and helpers: `opencode.md`, `opencode/inbox.js`, `opencode/wake.py`, `hermes-kanban/` |

@@ -2,7 +2,8 @@
 """Wake an idle opencode PM when its mailbox gets a message (see references/inbox.md).
 
     wake.py inbox/ PM-ui         run by the opencode plugin (inbox.js) when a mailbox changes
-    wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs
+    wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs, and reaps
+                                 the repo's stale worktrees and idle agent postgres
 
 It finds the PM's session in opencode's database: the newest top-level session that ran
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
@@ -16,6 +17,11 @@ It finds the PM's session in opencode's database: the newest top-level session t
 - No session found, a session busy for more than WAIT seconds, or no unread left: it logs and
   stops. `inbox.py check` still catches what nobody read.
 
+- A session whose last turn ended in an error (`outcome: failed` in opencode) is reported to the PO's
+  mailbox, once per failed turn, and the sweep stops nudging it. Why: on 2026-11-02 two PMs had
+  failed every wake for hours (the provider rejected their history with a 400) while the log said
+  "woke" and "nudged", and 11 messages sat unread with nobody knowing.
+
 Every decision is one line in inbox/.wakes.log, which is also what the cap counts.
 
 The sweep exists because a PM that ends its turn sleeps until a message arrives, even with free
@@ -23,6 +29,10 @@ dev slots and launchable tickets. For every PM-* mailbox it nudges the PM's sess
 stretch: idle for more than IDLE and less than STALE (older is a retired PM), and its last turn was
 not already a nudge, so a PM that answered "nothing to do" is not nudged again until something else
 happens in its session.
+
+The sweep then runs `stale_worktrees.py <repo> --reap` on the repo that holds inbox/ (DoD 9):
+worktrees with no git activity for a day go, saved first as `conserva/wt-<name>` when they hold
+work, and agent postgres with no client go down. Each line it prints is logged.
 """
 from __future__ import annotations
 
@@ -40,8 +50,9 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
+import stale_worktrees  # noqa: E402
 
-CAP = 20         # wakes per PM per rolling hour (the owner raised it from 3, 2026-10-30)
+CAP = 40         # wakes per PM per rolling hour (owner decision, 2026-11-03)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
@@ -148,6 +159,42 @@ def busy(db: sqlite3.Connection, sid: str) -> bool:
     return (b or 0) > (i or 0)
 
 
+def failed_turn(db: sqlite3.Connection, sid: str) -> tuple[float, str] | None:
+    """(when, error) if the session's last turn ended in a failure, else None."""
+    row = db.execute("select time_created, data from session_message where session_id = ?"
+                     " and type = 'idle' order by time_created desc limit 1", (sid,)).fetchone()
+    try:
+        data = json.loads(row[1]) if row else {}
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("outcome") != "failed":
+        return None
+    err = data.get("error") or {}
+    return row[0], (err.get("message") if isinstance(err, dict) else str(err)) or "unknown error"
+
+
+def alert_failed(db: sqlite3.Connection, root: str, pm: str, sid: str) -> str | None:
+    """Tell PO, once per failed turn, that pm's session fails when woken: waking it again would fail
+    the same way, and nobody reads its mailbox until someone relaunches it."""
+    failed = failed_turn(db, sid)
+    if not failed:
+        return None
+    mark = f"failed {sid} {failed[0]:.0f}"
+    try:
+        with open(log_path(root), encoding="utf-8") as f:
+            if any(mark in line for line in f):
+                return mark
+    except FileNotFoundError:
+        pass
+    log(root, pm, f"{mark}: {failed[1]}")
+    unread = [m.id for m in inbox.messages(root, pm) if m.unread]
+    inbox.send(root, "PO", "barrido",
+               f"{pm} no responde: su sesión {sid} terminó su último turno con error ({failed[1]}). "
+               f"Tiene {len(unread)} sin leer. Despertarla de nuevo falla igual: relánzalo en una "
+               f"sesión nueva que lea su buzón.")
+    return mark
+
+
 def opencode() -> str:
     return shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
 
@@ -196,6 +243,9 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
                                          (sid,)).fetchone()[0] or 0) / 1000
             if busy(db, sid) or not idle <= idle_for <= stale:
                 continue
+            if alert_failed(db, root, pm, sid):
+                done.append(f"{pm} {sid}: its last turn failed, the PO was told")
+                continue
             if NUDGE_MARK in last_prompt(db, sid):
                 done.append(f"{pm} {sid}: already nudged, waiting for news")
                 continue
@@ -205,6 +255,17 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
     finally:
         db.close()
     return done
+
+
+def reap(root: str, older: float = 24.0) -> list[str]:
+    """Reap the stale worktrees and idle postgres of the repo that holds root; log what it did."""
+    repo = os.path.dirname(root)
+    lines = stale_worktrees.reap(repo, "main", stale_worktrees.in_use(), older)
+    lines += stale_worktrees.stop_postgres(stale_worktrees.PG_ROOT, older)
+    for line in lines:
+        if not line.startswith("kept"):
+            log(root, "reap", line)
+    return lines or ["nothing to reap"]
 
 
 def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, cap: int = CAP,
@@ -252,12 +313,17 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
         log(root, pm, what)
         script = os.path.abspath(inbox.__file__)
         send(sid, TEXT.format(pm=pm, ids=", ".join(unread), script=script, root=root))
+        if alert_failed(db, root, pm, sid):
+            what = f"{what}; the turn failed, the PO was told"
+            break
     return what
 
 
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--sweep":
-        print("\n".join(sweep(os.path.abspath(argv[1]))) or "nobody idle")
+        root = os.path.abspath(argv[1])
+        print("\n".join(sweep(root)) or "nobody idle")
+        print("\n".join(reap(root)))
         return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
