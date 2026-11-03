@@ -2,7 +2,8 @@
 """Wake an idle opencode PM when its mailbox gets a message (see references/inbox.md).
 
     wake.py inbox/ PM-ui         run by the opencode plugin (inbox.js) when a mailbox changes
-    wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs
+    wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs, and reaps
+                                 the repo's stale worktrees and idle agent postgres
 
 It finds the PM's session in opencode's database: the newest top-level session that ran
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
@@ -23,6 +24,10 @@ dev slots and launchable tickets. For every PM-* mailbox it nudges the PM's sess
 stretch: idle for more than IDLE and less than STALE (older is a retired PM), and its last turn was
 not already a nudge, so a PM that answered "nothing to do" is not nudged again until something else
 happens in its session.
+
+The sweep then runs `stale_worktrees.py <repo> --reap` on the repo that holds inbox/ (DoD 9):
+worktrees with no git activity for a day go, saved first as `conserva/wt-<name>` when they hold
+work, and agent postgres with no client go down. Each line it prints is logged.
 """
 from __future__ import annotations
 
@@ -40,6 +45,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
+import stale_worktrees  # noqa: E402
 
 CAP = 20         # wakes per PM per rolling hour (the owner raised it from 3, 2026-10-30)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
@@ -207,6 +213,17 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
     return done
 
 
+def reap(root: str, older: float = 24.0) -> list[str]:
+    """Reap the stale worktrees and idle postgres of the repo that holds root; log what it did."""
+    repo = os.path.dirname(root)
+    lines = stale_worktrees.reap(repo, "main", stale_worktrees.in_use(), older)
+    lines += stale_worktrees.stop_postgres(stale_worktrees.PG_ROOT, older)
+    for line in lines:
+        if not line.startswith("kept"):
+            log(root, "reap", line)
+    return lines or ["nothing to reap"]
+
+
 def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, cap: int = CAP,
         send=None) -> str:
     """Wake pm's session while new unread ids arrive. Returns the last decision logged."""
@@ -257,7 +274,9 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
 
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--sweep":
-        print("\n".join(sweep(os.path.abspath(argv[1]))) or "nobody idle")
+        root = os.path.abspath(argv[1])
+        print("\n".join(sweep(root)) or "nobody idle")
+        print("\n".join(reap(root)))
         return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
