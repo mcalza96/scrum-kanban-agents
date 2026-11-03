@@ -176,6 +176,92 @@ def age_hours(sent: str, today: datetime.datetime) -> float | None:
         return None
 
 
+def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str = "PM-calidad") -> str:
+    """Encola un pedido en inbox/.lanzar/. Vuelve al instante con el id del pedido."""
+    if not NAME.match(pm):
+        raise ValueError(f"bad pm {pm!r}")
+    if not re.match(r"^[A-Za-z0-9._-]+$", ticket):
+        raise ValueError(f"bad ticket {ticket!r}")
+    prompt = os.path.abspath(os.path.expanduser(prompt))
+    if not os.path.isfile(prompt):
+        raise ValueError(f"prompt not found: {prompt}")
+    qdir = os.path.join(root, ".lanzar")
+    os.makedirs(qdir, exist_ok=True)
+    # Candado D-285: un ticket no se encola dos veces mientras haya uno en cola,
+    # ya tomado (.claim) o con dev vivo (log + DB busy). Segundo intento se rechaza.
+    lock_path = os.path.join(qdir, ".lanzar.lock")
+    with open(lock_path, "a+", encoding="utf-8") as lock_f:
+        try:
+            fcntl.flock(lock_f, fcntl.LOCK_EX)
+        except Exception:
+            pass
+        # 1) en cola o reclamado (.json y .json.claim)
+        for pat in (os.path.join(qdir, "*.json"), os.path.join(qdir, "*.json.claim")):
+            for p in glob.glob(pat):
+                if os.path.basename(p) == "log":
+                    continue
+                try:
+                    with open(p, encoding="utf-8") as f:
+                        d = json.load(f)
+                    if d.get("ticket") == ticket:
+                        raise ValueError(f"en cola, no reintentes, mira inbox/.lanzar/log (ticket {ticket} ya en {os.path.basename(p)})")
+                except ValueError:
+                    raise
+                except Exception:
+                    continue
+        # 2) con dev vivo según log + DB (si existe DB)
+        lp = os.path.join(qdir, "log")
+        if os.path.exists(lp):
+            db_path = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
+            if os.path.exists(db_path):
+                try:
+                    import sqlite3 as _sqlite3
+                    db = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                    with open(lp, encoding="utf-8") as lf:
+                        for line in lf:
+                            line=line.strip()
+                            if not line:
+                                continue
+                            try:
+                                e=json.loads(line)
+                            except Exception:
+                                continue
+                            if e.get("ticket") != ticket:
+                                continue
+                            sid=e.get("session")
+                            if not sid:
+                                continue
+                            try:
+                                row=db.execute("select time_busy, time_idle from session_v2 where id = ?", (sid,)).fetchone()
+                                if row and (row[0] or 0) > (row[1] or 0):
+                                    raise ValueError(f"en cola, no reintentes, mira inbox/.lanzar/log (ticket {ticket} con dev vivo {sid})")
+                            except ValueError:
+                                raise
+                            except Exception:
+                                continue
+                    db.close()
+                except ValueError:
+                    raise
+                except Exception:
+                    pass
+        stamp = datetime.datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+        # unique id: ticket-pm-stamp-rand
+        uniq = f"{ticket}--{pm}--{stamp}-{os.getpid()}"
+        path = os.path.join(qdir, f"{uniq}.json")
+        # ensure not overwriting
+        counter = 0
+        while os.path.exists(path):
+            counter += 1
+            path = os.path.join(qdir, f"{uniq}-{counter}.json")
+        data = {"id": uniq, "pm": pm, "ticket": ticket, "prompt": prompt, "from": sender,
+                "created": now(), "status": "pending"}
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.rename(tmp, path)
+        return uniq
+
+
 def check(root: str, max_hours: float, today: datetime.datetime | None = None) -> list[str]:
     today = today or datetime.datetime.now().astimezone()
     flags = []
@@ -217,10 +303,19 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--max-hours", type=float, default=4)
     h = sub.add_parser("hook", help="for a Claude Code hook: prints `pending`, never fails")
     h.add_argument("root")
+    lz = sub.add_parser("lanzar", help="encola un dev para el lanzador del servicio")
+    lz.add_argument("root")
+    lz.add_argument("--pm", required=True, help="PM dueño, ej. PM-calidad")
+    lz.add_argument("--ticket", required=True, help="id del ticket, ej. CAL-25")
+    lz.add_argument("--prompt", required=True, help="ruta al prompt del dev")
+    lz.add_argument("--from", dest="sender", default="PM-calidad", help="quien pide el lanzamiento")
     args = ap.parse_args(argv)
 
     try:
-        if args.cmd == "send":
+        if args.cmd == "lanzar":
+            print(lanzar(args.root, args.pm, args.ticket, args.prompt, args.sender))
+            return 0
+        elif args.cmd == "send":
             print(send(args.root, args.to, args.sender, args.text))
         elif args.cmd == "read":
             print(read(args.root, args.pm))

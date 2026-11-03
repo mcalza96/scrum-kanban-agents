@@ -66,3 +66,11 @@ trace described in `references/traceability.md`.
 - A detached process started from a session's shell tool did not survive the command in a real
   run (2026-10-30: two sends, no line in the log; the cause was not isolated). Work that must
   outlive a turn starts from a plugin, which runs in the service (`inbox.js` starts `wake.py`).
+- **Lanzador de devs (CAL-25).** `opencode run --title "dev <ticket>"` crea la sesión del dev;
+  flags `--model` y `--agent` fijan el modelo/agente si hiciera falta (verificados con
+  `opencode run --help`), pero por defecto se usan los del servicio. No hay flag `--parent` para
+  fijar el padre; la trazabilidad dev→PM queda en `inbox/.lanzar/log` y en el título `dev <ticket>`
+  (que `medir-agentes.py` ya reconoce). El PM encola con `inbox.py lanzar` que escribe en
+  `inbox/.lanzar/`; `inbox.js` observa esa carpeta y arranca `adapters/opencode/lanzar.py` en el
+  servicio, que respeta los topes (1 por PM, 4 global) y la cola FIFO, y encola el aviso de falla si
+  el dev muere sin reportar. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira inbox/.lanzar/log` (D-285) y un candado verifica que dos `lanzar` seguidos del mismo ticket generen un solo pedido. No toques `inbox/.lanzar/` a mano.

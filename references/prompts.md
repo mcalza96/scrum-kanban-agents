@@ -30,6 +30,24 @@ prompt points to, the dev does not know it.
 
 Template: `templates/PROMPT.md`.
 
+## Lanzamiento vía servicio (CAL-25, D-278) — reemplaza `subagent` para devs
+
+El PM no espera al dev en la herramienta `subagent` (33 % del tiempo de PM bloqueado, 2026-11-03).
+En su lugar:
+
+1. Escribe el prompt del dev en `epic-*/prompts/<ticket>-dev.md` (como antes).
+2. Encola el pedido sin bloquearse: `python3 scripts/inbox.py lanzar inbox/ --pm PM-x --ticket CAL-n --prompt <ruta>`.
+   Esto crea `inbox/.lanzar/<id>.json` y vuelve al instante con el id de la petición. Si el mismo ticket ya está en cola, tomado (`.claim`) o con dev vivo, `lanzar` rechaza el segundo pedido y dice `en cola, no reintentes, mira inbox/.lanzar/log` (candado D-285). No toques `inbox/.lanzar/` a mano (rm/mv/cp): deja que el lanzador lo gestione.
+3. El plugin del servicio (`adapters/opencode/inbox.js` → `adapters/opencode/lanzar.py`) observa
+   `inbox/.lanzar/` y arranca `opencode run --title "dev <ticket>"` con el contenido del prompt.
+   Usa el mismo modelo y agente que hoy y el directorio del ticket. El PM no queda esperando.
+4. El dev sigue siendo one-shot con `TO:` y una sola tarea; al terminar escribe su reporte, pone su
+   fila en `reported` y avisa al PM por buzón: `inbox.py send --to PM-x` citando ticket y ruta del reporte.
+   `wake.py` despierta al PM.
+
+`subagent` para devs queda **reemplazado** por este flujo; no usarlo para lanzar devs (sigue disponible
+para otras herramientas si hiciera falta).
+
 ## Return prompts
 
 A return goes to a **new session**, never to the session that produced the false data. That

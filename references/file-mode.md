@@ -63,6 +63,14 @@ The PM writes `reports/<ID>-review.md`:
 Each return round is appended as «Return N · PM review (time) · verdict», so the history stays
 in one place.
 
+## Lanzamiento desacoplado (CAL-25)
+
+El PM encola devs con `inbox.py lanzar inbox/ --pm PM-x --ticket CAL-n --prompt <ruta>` en
+`inbox/.lanzar/`; el plugin del servicio los lanza con `opencode run --title "dev <ticket>"`.
+`inbox/.lanzar/log` guarda la trazabilidad (pm, ticket, session, prompt); el título `dev <ticket>`
+permite a `medir-agentes.py` distinguir devs de PMs. Topes: 1 dev por PM y 4 en la máquina
+(`adapters/opencode/lanzar.py: MAX_PER_PM / MAX_GLOBAL`), en cola FIFO. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira inbox/.lanzar/log` (D-285). No toques `inbox/.lanzar/` a mano.
+
 ## Sync
 
 If agents write to a different copy of the tree (another machine, a desktop folder), sync it in

@@ -9,8 +9,14 @@
 // It also wakes idle PMs: it watches inbox/ and, on any change to a mailbox, starts wake.py for it.
 // It runs here because the service outlives every turn; a waker started from a PM's shell command
 // left no trace in a real run. wake.py decides whether there is anything new to wake for.
+//
+// Lanzador CAL-25 (D-278): el PM deja `inbox.py lanzar --pm PM-x --ticket CAL-n --prompt <ruta>`
+// que escribe en `inbox/.lanzar/`. El plugin observa esa carpeta y arranca la sesión del dev con
+// `opencode run`. Vive en el servicio (igual que wake.py) porque un hijo del shell del PM no
+// sobrevive al turno. Topes: 1 dev por PM y 4 en la máquina (variables documentadas en lanzar.py).
 import { execFileSync, spawn } from "node:child_process";
 import { watch } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +25,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../inbox");
 const SCRIPT = process.env.INBOX_PY ||
   join(homedir(), ".claude/skills/scrum-kanban-agents/scripts/inbox.py");
 const WAKE = join(dirname(SCRIPT), "../adapters/opencode/wake.py");
+const LANZAR = join(dirname(SCRIPT), "../adapters/opencode/lanzar.py");
 const timers = new Map();
+let lanzarTimer = null;
 
 function wake(file) {
   const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)\.md$/.exec(file ?? "");
@@ -31,6 +39,16 @@ function wake(file) {
       spawn("python3", [WAKE, ROOT, m[1]], { detached: true, stdio: "ignore" }).unref();
     } catch {}
   }, 2000));
+}
+
+function lanzarKick() {
+  if (lanzarTimer) clearTimeout(lanzarTimer);
+  lanzarTimer = setTimeout(() => {
+    lanzarTimer = null;
+    try {
+      spawn("python3", [LANZAR, ROOT], { detached: true, stdio: "ignore" }).unref();
+    } catch {}
+  }, 800);
 }
 
 function pending() {
@@ -47,6 +65,16 @@ export default {
     try {
       watch(ROOT, (_, file) => wake(file));
     } catch {} // no inbox/ yet: nothing to wake
+    // Lanzador: observa inbox/.lanzar/
+    try {
+      const qdir = join(ROOT, ".lanzar");
+      if (existsSync(qdir)) watch(qdir, () => lanzarKick());
+      else watch(ROOT, (_, file) => { if (file === ".lanzar") lanzarKick(); });
+      // intento inicial por si quedó cola de antes del reinicio
+      lanzarKick();
+      // reintento periódico: el intervalo reevalúa topes liberados
+      setInterval(() => { try { spawn("python3", [LANZAR, ROOT], { detached: true, stdio: "ignore" }).unref(); } catch {} }, 60_000);
+    } catch {}
     await api.session.hook("context", async (req) => {
       try {
         const last = req.messages?.at(-1);
