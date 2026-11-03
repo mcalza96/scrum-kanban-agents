@@ -30,6 +30,7 @@ human decision at every step.
 | Role | Who | Does | Does NOT |
 |---|---|---|---|
 | Stakeholder | The human | Prioritizes, decides, accepts | Edit the board rows of others |
+| Delivery director | One agent session, optional, over the PO when the PO is overloaded | Watches the runtime records every few minutes, alerts the PO with evidence, records the human's decisions as tickets | Prioritize, assign, launch devs, kill processes, edit code |
 | PM | One agent session (or the human) | Writes tickets, verifies reports, closes or returns | Implement what it reviews |
 | Dev | A fresh agent session for **one** task (one-shot) | Implements, runs tests, writes the report and its logbook | Take a second task, decide scope, close its own ticket |
 | Gate | Tests, scripts, hidden evaluation sets | Mechanical verdict | Get changed by the dev it judges |
@@ -207,6 +208,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
+| `adapters/opencode/control.sh` | The delivery director's read-only check of the last N minutes (references/lessons.md, «Supervision») |
 | `scripts/archivar.py` | Moves read mail, old wake lines, closed STATUS rows and done directives to archive files (run by the sweep) |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |

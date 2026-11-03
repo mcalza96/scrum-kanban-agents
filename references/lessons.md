@@ -60,6 +60,44 @@ command, and an output. «It was slow» is not a lesson.
 - **Before you accept a commit, scan what went in.** Check the added lines for secret patterns and
   look for files that shouldn't be versioned. Also check that deleted files have a copy somewhere.
 
+- **One checkout shared by many agents loses work to `stash`, `checkout`, `restore` and `reset`.**
+  On 2026-11-03 a PM ran `git checkout HEAD -- inbox/` and `git stash push --include-untracked`
+  then `drop`: the mailboxes of every PM went back twice, and other agents' uncommitted work went
+  with them. Devs did the same to make `tsc` pass (`stash push --keep-index`, `pop`, `drop`,
+  `reset HEAD`).
+  - In a shared checkout an agent never runs `stash`, `checkout -- <path>`, `restore`, `reset`,
+    `add -A` or `--amend`. It commits with `git commit --only <its paths>`.
+  - A dropped stash is not gone: `git fsck --no-reflog --unreachable` lists it as a dangling
+    commit. Recover file by file with `git show <sha>:<path> > <path>` (`<sha>^3` holds the
+    untracked files), comparing with the current file first. Never `stash pop` it over a live tree.
+- **Every worktree carries its own copy of the gate script.** An old copy skips the queue and the
+  cache of the new one. The script's first act is to `exec` the copy of the main checkout
+  (`git rev-parse --path-format=absolute --git-common-dir`).
+- **A dev that commits its own work skips the gate.** Only the PM commits, after the verification
+  of that exact sha (DoD 2).
+
+## Supervision
+
+- **When the PO drowns, add a delivery director, not a second PO.** On 2026-11-03 the PO took about
+  one turn a minute, mostly status echoes from PMs. The human put one agent over the PO:
+  - it reads the runtime's own records every 10 minutes (`adapters/opencode/control.sh`), never
+    the agents' accounts: duplicate devs on one ticket, forbidden git or `kill` commands, ungated
+    commits, reverted mailboxes, the PO's turns per window;
+  - it alerts the PO with the evidence, typed `[bloqueo]` when work is at risk;
+  - it records the human's decisions and turns them into tickets;
+  - it does not prioritize, assign, launch devs, kill processes or edit code.
+- **Typed messages and a hold cut the PO's wakes.** `[aviso]` waits up to 15 minutes and wakes the
+  PO once for all of them; `[bloqueo]` and `[decision]` wake at once; nobody replies to acknowledge
+  (references/inbox.md). In the first 10 minutes the PO went from 25 wakes per half hour to 6
+  turns.
+- **A launcher must make one request one launch.** A plugin that retried every 60 seconds with a
+  claim that was not atomic started 6 devs on the same ticket, and they undid each other's files.
+  Claim by an atomic rename, and test it with a double of the binary.
+- **Files every agent reads each turn must be bounded.** Mailboxes, the wake log, `STATUS.md` and
+  the focus tables grow forever, and their cost is paid on every read (`STATUS.md`: 555 reads in a
+  day). `scripts/archivar.py` moves what is done to archive files in the sweep. When ids are
+  numbered from the highest row, the highest row never moves, or ids are handed out twice.
+
 ## Environment and permissions
 
 - **Workers often have fewer permissions than the PM.** They may be sandboxed from writing to
