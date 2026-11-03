@@ -149,6 +149,16 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
    report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`).
    Why: in the project this skill comes from, 14 worktrees of closed tickets held about 8 GB, and
    nothing said whose they were.
+10. The full gate (build plus suite) passed on the **exact commit that closes the ticket**, in a
+    clean checkout of that commit. A green run on an earlier commit, on a sibling commit, or on the
+    working tree doesn't count. If the close needs one more commit (a missing helper, a re-pointed
+    lock, a list entry), that commit gets its own green run before the row closes. A commit
+    carries only files of its own ticket: an entry that points to another ticket's uncommitted
+    file goes in with that file.
+    Why: in the project this skill comes from, `main` went red three times in one day from closes
+    verified on an earlier sha. A close removed a feature and left its lock pointing at it. A
+    helper existed only in the working tree. A list named a migration whose file was never
+    committed, and that stopped a deploy at its first step.
 
 A `completed` status without an artifact is a **delivery failure**, not a success.
 
