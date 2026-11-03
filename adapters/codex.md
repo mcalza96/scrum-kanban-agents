@@ -18,14 +18,25 @@ El plugin opencode puede seguir usando su instalación .claude; ambos leen el mi
 
 ## Recepción en el chat
 
-En Codex Desktop, una automatización heartbeat de este chat ejecuta la ronda cada 30 minutos.
-El heartbeat usa las herramientas nativas de automations: no escribe directamente archivos de
-configuración ni invoca una API privada del app-server. El evento de un archivo no es una
-notificación instantánea a Codex. La recepción queda limitada por el intervalo, la disponibilidad
-de la app/equipo y los permisos de ejecución de la automatización.
+El puente `adapters/codex/wake.py` se ejecuta por launchd WatchPaths sobre inbox/PO.md.
+Usa la interfaz pública del CLI instalado: `codex queue --thread UUID --message TEXTO --resume`.
+El servidor local se inicia mediante `codex app-server daemon start` (idempotente), sin habilitar
+control remoto. No se cambia el watcher opencode ni se usa una API privada de Desktop.
 
-El heartbeat lee mensajes sin ack y no genera salida si nada cambió. Solo comunica avances
-relevantes, fallas y decisiones del dueño. No arranques además tail -F: los ack reescriben el archivo
+La configuración local pasa --root (inbox), --thread (este chat), --state (JSON fuera del repo)
+y --codex (ruta absoluta del CLI). RunAtLoad permite recoger mensajes al iniciar sesión.
+El estado guarda IDs bajo flock; ack y reescrituras no reenvían mensajes ya encolados.
+El puente no hace ack. Los contenidos del buzón se leen con inbox.py, no se ejecutan como código.
+
+**Encolado no equivale a despertar.** CLI 0.166.0-alpha.5.1 puede devolver exit 0 con warning si
+resume falla. El puente conserva el recibo de cola para evitar duplicados y registra el warning.
+En la prueba real Desktop mantuvo el chat con `already has an active writer`: no se confirmó
+el despertar de un chat inactivo. No prometas recepción inmediata hasta verificar ese caso.
+El bloqueo impide que el daemon tome simultáneamente el chat que Desktop mantiene cargado.
+La disponibilidad de app/equipo y servidor limita la entrega; WatchPaths tampoco ofrece una SLA.
+
+La automatización heartbeat de este chat ejecuta además la ronda cada 30 minutos, como respaldo.
+Permanece silenciosa sin cambios relevantes. No arranques tail -F: los ack reescriben el archivo
 y ese método ya reprodujo mensajes antiguos. No mantengas simultáneamente dos PO activos.
 
 ## Envío y devs
@@ -40,7 +51,6 @@ no uses una sesión Codex como sustituto de un dev opencode pedido por el dueño
 
 ## Permisos y verificación
 
-El sandbox puede ser de solo lectura. Para send, ack, commits y lanzamientos solicita la escalación
-nativa del comando; nunca declares un envío o cierre cuando el comando fue rechazado.
+Respeta los permisos de la sesión. Nunca declares un envío o cierre cuando el comando fue rechazado.
 Prueba send/read/ack en un buzón temporal y luego pide una respuesta real a un PM para comprobar
 el retorno a PO. La comprobación de ida y vuelta debe quedar en el reporte del traspaso.
