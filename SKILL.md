@@ -127,7 +127,7 @@ pending → in progress → reported → closed
     closes a ticket that unblocks that lane, before it touches that lane's files, and when it needs
     an answer to go on (`scripts/inbox.py send`). A hook puts the unread messages in front of every
     PM turn; the PM reads them first and acks them after acting, and `inbox.py check` flags the
-    ones left unread. A message to an idle PM wakes it (at most 20 times per PM per hour; past that
+    ones left unread. A message to an idle PM wakes it (at most 40 times per PM per hour; past that
     it waits for the human). Read `references/inbox.md`.
 
 ## Definition of Done
