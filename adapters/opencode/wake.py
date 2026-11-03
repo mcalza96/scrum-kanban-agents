@@ -120,14 +120,15 @@ def commands(data: str) -> list[str]:
     return found
 
 
-def woken_ids(root: str, pm: str) -> set[str]:
-    """Ids some earlier wake of pm already announced: never wake twice for the same message."""
+def woken_ids(root: str, pm: str, sid: str) -> set[str]:
+    """Ids an earlier wake already announced to this session: never wake it twice for the same
+    message. A wake that went to another session does not count: it never reached pm."""
     ids: set[str] = set()
     try:
         with open(log_path(root), encoding="utf-8") as f:
             for line in f:
                 parts = line.split()
-                if len(parts) > 6 and parts[3] == pm and parts[4] == "woke":
+                if len(parts) > 6 and parts[3] == pm and parts[4] == "woke" and parts[5] == sid:
                     ids.update(parts[7:])
     except FileNotFoundError:
         pass
@@ -150,6 +151,15 @@ def addressee(db: sqlite3.Connection, sid: str) -> str | None:
     return plain(m.group(1)) if m else None
 
 
+def signers(db: sqlite3.Connection, sid: str) -> set[str]:
+    """The names a session signs its sends with (`--from <name>`): who it is when no `TO:` says so.
+    Why (2026-11-03): the PO, opened by hand, read PM-ui's mailbox and took PM-ui's wakes."""
+    sign = re.compile(r"inbox\.py\s+send\b[^\n;&|]*?--from[=\s]+[\"']?([\w.-]+)")
+    rows = db.execute("select data from session_message where session_id = ? and type = 'assistant'"
+                      " and data like '%--from%'", (sid,))
+    return {plain(n) for (data,) in rows for cmd in commands(data) for n in sign.findall(cmd)}
+
+
 def plain(name: str) -> str:
     """`PM-auditoría` and `PM-auditoria` are the same PM: prompts carry the accent, mailboxes don't."""
     return "".join(c for c in unicodedata.normalize("NFD", name) if unicodedata.category(c) != "Mn")
@@ -165,7 +175,8 @@ def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
         " where m.type = 'assistant' and s.parent_id is null and s.time_archived is null"
         " and m.data like ? order by m.time_created desc limit 500", (f"%inbox.py read %{pm}%",))
     for sid, cwd, data in rows:
-        if addressee(db, sid) not in (None, plain(pm)):
+        to = addressee(db, sid)
+        if to not in (None, plain(pm)) or (to is None and signers(db, sid) - {plain(pm)}):
             continue  # another PM read this mailbox to check on it; it is not pm's session
         for cmd in commands(data):
             for path in read.findall(cmd):
@@ -312,7 +323,15 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
     while True:
         msgs = [m for m in inbox.messages(root, pm) if m.unread]
         unread = [m.id for m in msgs]
-        woken = woken_ids(root, pm)
+        if not msgs:
+            what = "nothing new unread"
+            break
+        sid = find_session(db, root, pm)
+        if not sid:
+            what = "skipped: no opencode session has run `inbox.py read` on this mailbox"
+            log(root, pm, what)
+            break
+        woken = woken_ids(root, pm, sid)
         new = [m for m in msgs if m.id not in woken]
         if not new:
             what = "nothing new unread"
@@ -324,11 +343,6 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
                 holding = True
             time.sleep(min(poll, left))
             continue
-        sid = find_session(db, root, pm)
-        if not sid:
-            what = "skipped: no opencode session has run `inbox.py read` on this mailbox"
-            log(root, pm, what)
-            break
         deadline = time.monotonic() + wait
         while busy(db, sid) and time.monotonic() < deadline:
             time.sleep(poll)

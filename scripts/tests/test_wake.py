@@ -74,6 +74,32 @@ class WakeTest(unittest.TestCase):
         self.wake()
         self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
 
+    def test_a_session_that_signs_as_another_pm_does_not_take_it(self):
+        # 2026-11-03: the owner opened the PO by hand («toma el papel de PO…», no TO:). It read
+        # PM-ui's mailbox to check on it, was the newest reader, and got PM-ui's wakes from 14:55
+        # on; PM-ui, PM-ui-2 and PM-ui-3 never woke. It signs its sends `--from PO`.
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1)
+        self.session("ses_po", f"inbox.py read {self.root} PM-ui", 2)
+        tool = {"type": "tool", "state": {"input": {"command": "inbox.py send --to PM-ui --from PO inbox 'R-9'"}}}
+        self.db.execute("insert into session_message values ('ses_po','assistant',3,?)",
+                        (json.dumps({"content": [tool]}),))
+        self.db.commit()
+        inbox.send(self.root, "PM-ui", "PO", "R-9")
+        self.wake()
+        self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
+
+    def test_a_wake_that_went_to_another_session_is_sent_again(self):
+        # 2026-11-03: M-57..M-59 woke the PO in PM-ui's place; once routing was right, the log
+        # still said they were woken, and PM-ui would never have heard of them.
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        inbox.send(self.root, "PM-ui", "PO", "R-9")
+        wake.log(self.root, "PM-ui", "woke ses_po for M-1")
+        self.wake()
+        self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
+        self.sent.clear()
+        self.wake()
+        self.assertEqual(self.sent, [])
+
     def test_to_counts_only_when_it_opens_the_prompt(self):
         # 2026-11-02: a PM's relaunch prompt said "launch devs with `TO: dev R-<n>`"; read anywhere,
         # that made it a dev session, and the wakes kept going to the stuck old session.
