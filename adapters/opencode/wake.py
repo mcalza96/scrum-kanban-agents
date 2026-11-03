@@ -52,7 +52,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import inbox  # noqa: E402
 import stale_worktrees  # noqa: E402
 
-CAP = 20         # wakes per PM per rolling hour (the owner raised it from 3, 2026-10-30)
+CAP = 40         # wakes per PM per rolling hour (owner decision, 2026-11-03)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
