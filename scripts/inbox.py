@@ -212,7 +212,7 @@ def age_hours(sent: str, today: datetime.datetime) -> float | None:
 
 
 def _infer_expected(ticket: str, prompt: str) -> str | None:
-    """CAL-29: artefacto esperado (reporte/ruta) inferido del ticket/prompt, sin bloquear."""
+    """artefacto esperado (reporte/ruta) inferido del ticket/prompt, sin bloquear."""
     if not ticket or ticket == "CAL-?":
         return None
     try:
@@ -235,7 +235,7 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
         raise ValueError(f"prompt not found: {prompt}")
     qdir = os.path.join(root, ".lanzar")
     os.makedirs(qdir, exist_ok=True)
-    # Candado D-285: un ticket no se encola dos veces mientras haya uno en cola,
+    # un ticket no se encola dos veces mientras haya uno en cola,
     # ya tomado (.claim) o con dev vivo (log + DB busy). Segundo intento se rechaza.
     lock_path = os.path.join(qdir, ".lanzar.lock")
     with open(lock_path, "a+", encoding="utf-8") as lock_f:

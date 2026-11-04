@@ -10,7 +10,7 @@
 // It runs here because the service outlives every turn; a waker started from a PM's shell command
 // left no trace in a real run. wake.py decides whether there is anything new to wake for.
 //
-// Lanzador CAL-25 (D-278): el PM deja `inbox.py lanzar --pm PM-x --ticket CAL-n --prompt <ruta>`
+// Lanzador: el PM deja `inbox.py lanzar --pm PM-x --ticket CAL-n --prompt <ruta>`
 // que escribe en `inbox/.lanzar/`. El plugin observa esa carpeta y arranca la sesión del dev con
 // `opencode run`. Vive en el servicio (igual que wake.py) porque un hijo del shell del PM no
 // sobrevive al turno. Topes: 1 dev por PM y 4 en la máquina (variables documentadas en lanzar.py).

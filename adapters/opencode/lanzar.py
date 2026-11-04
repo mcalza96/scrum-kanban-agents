@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Lanzador de devs desde el servicio opencode (CAL-25).
+"""Lanzador de devs desde el servicio opencode.
 
 Vive en el plugin (inbox.js lo arranca) porque un proceso desacoplado lanzado
 desde el shell del PM no sobrevive al turno.
 
-Topes (decisión del dueño, medidos en D-278):
+Topes (decisión del dueño):
   MAX_PER_PM = 1 dev por PM (igual que hoy, el PM gana capacidad mientras su dev trabaja)
   MAX_GLOBAL = 4 devs en la máquina
 Subir el tope es decisión del dueño con medición en mano (epic-calidad/medicion/medir-agentes.py).
 
 Cola: inbox/.lanzar/*.json (cada uno es un pedido de inbox.py lanzar).
 Log de trazabilidad: inbox/.lanzar/log  (una línea JSON por lanzamiento: pm, ticket, session, prompt, ts, parent)
-Si opencode run expone parent_id se usa; si no, el log es el registro (D-278, punto 4).
+Si opencode run expone parent_id se usa; si no, el log es el registro.
 Título del dev empieza con "dev " para que medir-agentes.py lo distinga.
 
 Falla sin reporte: si la sesión termina con outcome failed y no mandó buzón, se deja aviso al PM.
@@ -207,7 +207,7 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> s
     repo = os.path.dirname(os.path.abspath(root))
     opencode = opencode_bin or shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
     cmd = [opencode, "run", "--title", title, "--format", "json"]
-    # model/agent: use defaults (owner decides D-278)
+    # model/agent: use defaults
     if runner is None:
         def runner(cmd, text):
             proc = subprocess.Popen(cmd + [text], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -241,7 +241,7 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> s
         if not sid:
             _notify_launch_error(root, entry, err or out or "no session id")
             return None
-        # trazabilidad — CAL-29: registra entrega esperada sin bloquear
+        # trazabilidad — registra entrega esperada sin bloquear
         expected = entry.get("expected") or inbox._infer_expected(ticket, prompt_path)
         log_entry = {
             "ts": datetime.datetime.now().astimezone().isoformat(),

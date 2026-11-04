@@ -10,7 +10,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SLEEP_UMBRAL = 5; // segundos, configurable por dueño (D-278)
+const SLEEP_UMBRAL = 5; // segundos, configurable por dueño
 const MAX_CMD_LOG = 120;
 
 function inboxRootFrom(ctx) {
@@ -233,7 +233,7 @@ export default {
             `bloqueado: ${sleepRes.regla} (${sleepRes.detalle}). ` +
             `No se permite sleep en loop (while/until/for con sleep) ni sleep N con N>${SLEEP_UMBRAL} (umbral ${SLEEP_UMBRAL}s configurable). ` +
             `Alternativa: corre el comando en segundo plano (usa & , background: true o timeout acotado) y lee su salida al terminar, ` +
-            `o usa \`bash scripts/suite.sh --resultado\` si ya existe (CAL-21 C). Motivo: sleep en loop bloquea el turno y desperdicia 1,7 h-agente (D-278).`
+            `o usa \`bash scripts/suite.sh --resultado\` si ya existe. Motivo: sleep en loop bloquea el turno y desperdicia 1,7 h-agente.`
           );
         }
 
@@ -263,7 +263,7 @@ export default {
           logBloqueo(inboxRoot, sessionID, cmd, "pkill-bloqueado");
           throw new Error(
             `bloqueado: pkill/killall por nombre siempre bloqueado. No se puede saber de quién es el proceso. ` +
-            `Motivo: proteger verificar-commit.sh, sus tsx --test y los servidores next dev ajenos (D-180). El candado huérfano se recupera solo. ` +
+            `Motivo: proteger verificar-commit.sh, sus tsx --test y los servidores next dev ajenos. El candado huérfano se recupera solo. ` +
             `Qué hacer: espera el turno de la cola (verificar-commit se encola) o avisa al PM. Alternativa para tu propio proceso: usa kill con PID descendiente de tu sesión.`
           );
         }
@@ -308,7 +308,7 @@ export default {
             logBloqueo(inboxRoot, sessionID, cmd, "kill-protegido", `pid ${pid} ${targetCmd.slice(0,40)}`);
             throw new Error(
               `bloqueado: kill sobre PID protegido (verificar-commit.sh, tsx --test o next dev ajeno) pid ${pid}. ` +
-              `El candado huérfano de verificar-commit se recupera solo (D-180). Qué hacer: espera el turno de la cola o avisa al PM.`
+              `El candado huérfano de verificar-commit se recupera solo. Qué hacer: espera el turno de la cola o avisa al PM.`
             );
           }
           const descendant = isDescendantDouble(pid, launchedSet, tree1, tree2);

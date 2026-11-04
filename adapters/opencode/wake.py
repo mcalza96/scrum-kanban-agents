@@ -43,7 +43,7 @@ happens in its session.
 The sweep then runs `stale_worktrees.py <repo> --reap` on the repo that holds inbox/ (DoD 9):
 worktrees with no git activity for a day go, saved first as `conserva/wt-<name>` when they hold
 work, and agent postgres with no client go down. Each line it prints is logged. Last it runs
-`scripts/archivar.py` on the repo (D-283): old read mail, old wake lines, closed STATUS rows and done
+`scripts/archivar.py` on the repo: old read mail, old wake lines, closed STATUS rows and done
 directives move to their archive files.
 """
 from __future__ import annotations
@@ -70,15 +70,12 @@ CAP = 40         # wakes per PM per rolling hour (owner decision, 2026-11-03)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
-HOLD = {"PO": 10 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision, D-282 → M-85 10 min)
+HOLD = {"PO": 10 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision)
 URGENT = re.compile(r"\s*\[(bloqueo|encargo|decisi[oó]n)\]", re.IGNORECASE)
-# M-83: si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro aunque sea aviso
+# si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro aunque sea aviso
 M_CITE_RE = re.compile(r"\bM-(\d+)\b")
 IDLE = 20 * 60
 STALE = 12 * 3600
-# CAL-29: ventana para "terminó sin entregar" (evita inundación M-260–M-617)
-VENTANA_HORAS = 24
-VENTANA_MS = VENTANA_HORAS * 3600 * 1000
 # A dev that delivered without telling its PM is news only while fresh. The plugin checks every
 # minute and the launchd sweep every 15, so 30 min covers both without replaying old sessions.
 RECENT_MS = 30 * 60 * 1000
@@ -153,9 +150,9 @@ def held(msgs: list, hold: float, now: datetime.datetime) -> float:
     """Seconds left before msgs must wake: 0 when one is urgent or the oldest waited hold."""
     if not hold or any(URGENT.match(m.text) for m in msgs):
         return 0.0
-    # M-83: si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro
+    # si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro
     # aunque el tag sea [aviso]; no cambia cadencia de avisos rutinarios sin cita
-    # Caso M-723: [aviso] M-723 (respuesta a mi encargo M-82) quedó held 15 min por tag [aviso]
+    # [aviso] M-723 (respuesta a mi encargo M-82) quedó held 15 min por tag [aviso]
     # Detecta cita con "encargo" + M-número, aunque el encargo citado no esté en esta misma lista
     # (está en otro buzón del PO), y también el caso intra-buzón.
     pending_encargo_ids = {m.id for m in msgs if URGENT.match(m.text)}
@@ -392,7 +389,7 @@ def _is_reported(ticket: str | None, repo: str) -> bool:
 
 
 def _load_log_sids(root: str) -> set[str] | None:
-    """CAL-29: sids que pasaron por lanzar/log. None si log no existe/vacío (tests)."""
+    """sids que pasaron por lanzar/log. None si log no existe/vacío (tests)."""
     lp = os.path.join(root, ".lanzar", "log")
     try:
         with open(lp, encoding="utf-8") as f:
@@ -414,7 +411,7 @@ def _load_log_sids(root: str) -> set[str] | None:
 
 
 def _load_log_expected(root: str) -> dict[str, str]:
-    """CAL-29: expected por sid desde log (si lanzador lo anotó)."""
+    """expected por sid desde log (si lanzador lo anotó)."""
     lp = os.path.join(root, ".lanzar", "log")
     out: dict[str, str] = {}
     try:
@@ -436,20 +433,8 @@ def _load_log_expected(root: str) -> dict[str, str]:
     return out
 
 
-def _is_within_window(idle_ms: int | None, now_ms: int | None = None) -> bool:
-    """CAL-29: solo sesiones dentro de la ventana (24h). Valores legacy pequeños se consideran dentro."""
-    if idle_ms is None:
-        return False
-    # tests usan 1/2 como busy/idle legacy
-    if idle_ms < 1000000000000:
-        return True
-    if now_ms is None:
-        now_ms = int(time.time() * 1000)
-    return (now_ms - idle_ms) < VENTANA_MS
-
-
 def _expected_exists(expected: str | None, repo: str) -> bool:
-    """CAL-29: verifica si el artefacto esperado existe (reporte/archivo)."""
+    """verifica si el artefacto esperado existe (reporte/archivo)."""
     if not expected:
         return False
     # expected es relativo al repo (ej epic-x/reports/T-1.md)
@@ -464,7 +449,7 @@ def _expected_exists(expected: str | None, repo: str) -> bool:
 
 
 def _has_delivery_evidence(db: sqlite3.Connection, sid: str, ticket: str | None, repo: str, root: str) -> bool:
-    """CAL-29: entrega verificable por script — mensaje en buzón del PM o artefacto comprometido."""
+    """entrega verificable por script — mensaje en buzón del PM o artefacto comprometido."""
     if not ticket or ticket == "?":
         # ticket desconocido no puede tener reported/file, solo inbox send cuenta
         if _has_inbox_send(db, sid):
@@ -554,26 +539,24 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     return "PO"
 
 
-def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) -> list[str]:
+def reap_finished(root: str, db_path: str = DB) -> list[str]:
     """Le avisa al PM cuando un dev suyo termina bien (succeeded), salvo que el dev ya le haya
     escrito con `inbox.py send --to <PM>`: el PM no depende de que el dev se acuerde.
 
-    Solo sesiones de inbox/.lanzar/log y dentro de la ventana de 24 h (CAL-29). El aviso es un
+    Solo sesiones de inbox/.lanzar/log que terminaron hace menos de RECENT_MS. El aviso es un
     [encargo] firmado `lanzador` que dice «terminó y entregó sin avisarte» (hay commit, fila en
-    reported o artefacto; solo si terminó hace menos de RECENT_MS) o «terminó sin entregar»,
+    reported o artefacto) o «terminó sin entregar»,
     con los commits que la sesión hizo y si la fila está en reported. Un solo aviso por sesión
     (dedup .aviso-dev con flock). No edita STATUS y no cuenta para CAP. Corre cada minuto
     desde el plugin inbox.js (`wake.py --reap`) y cada 15 min desde el barrido.
     """
-    if window_ms is None:
-        window_ms = VENTANA_MS
     if not os.path.exists(db_path):
         return []
     aviso_path = os.path.join(root, ".lanzar", ".aviso-dev")
     os.makedirs(os.path.dirname(aviso_path), exist_ok=True)
     repo = os.path.dirname(os.path.abspath(root))
     done: list[str] = []
-    # filtros CAL-29: solo lanzar/log y ventana
+    # filtros solo lanzar/log y ventana
     log_sids = _load_log_sids(root)
     now_ms = int(time.time() * 1000)
     # 1) recolecta candidatos fuera del lock (DB)
@@ -599,10 +582,9 @@ def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) ->
             out = _last_idle_outcome(db, sid)
             if out != "succeeded":
                 continue
-            # CAL-29: ventana temporal
-            if not _is_within_window(idle, now_ms):
+            if not idle or now_ms - idle > RECENT_MS:  # old news: the check runs every minute
                 continue
-            # CAL-29: solo sesiones de lanzar/log (si hay log, filtra)
+            # solo sesiones de lanzar/log (si hay log, filtra)
             if log_sids is not None and sid not in log_sids:
                 continue
             candidates.append((sid, title, parent_id, idle))
@@ -613,7 +595,7 @@ def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) ->
             pass
     if not candidates:
         return []
-    # 2) dedup con flock y envío — CAL-29: verifica entrega por script
+    # 2) dedup con flock y envío — verifica entrega por script
     try:
         db2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except Exception:
@@ -638,12 +620,8 @@ def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) ->
                 known = ticket if ticket != "?" else None
                 shas = _commits_of(db2, sid)
                 delivered = bool(shas) or _has_delivery_evidence(db2, sid, known, repo, root)
-                if delivered and now_ms - (idle or 0) > RECENT_MS:
-                    af.write(sid + "\n")  # finished before this check existed: no stale news
-                    seen.add(sid)
-                    continue
                 reported_txt = "sí" if _is_reported(known, repo) else "no"
-                # CAL-29: "terminó sin entregar" is not "murió sin reportar" (failed)
+                # "terminó sin entregar" is not "murió sin reportar" (failed)
                 what = "terminó y entregó sin avisarte" if delivered else "terminó sin entregar"
                 msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
                        f"reported: {reported_txt} | session {sid}. Verifica y cierra o devuelve.")
@@ -679,7 +657,7 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
     now = time.time() if now is None else now
     done: list[str] = []
-    # CAL-27: aviso de dev terminado, un solo punto que cubre 100% (barrido). No cuenta para CAP.
+    # aviso de dev terminado, un solo punto que cubre 100% (barrido). No cuenta para CAP.
     try:
         done.extend(reap_finished(root, DB))
     except Exception:

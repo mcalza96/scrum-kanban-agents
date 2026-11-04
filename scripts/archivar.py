@@ -31,7 +31,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inbox  # noqa: E402
 
-INBOX_HOURS = 48     # owner decision, D-283
+INBOX_HOURS = 48     # owner decision
 WAKES_DAYS = 7
 KEEP_CLOSED = 5
 DONE = re.compile(r"^(executed|superseded)", re.IGNORECASE)
@@ -128,13 +128,13 @@ def statuses(repo: str, dry: bool) -> list[str]:
         if head is None:
             continue
         cols = cells(lines[head])
-        # admite State y Estado (M-77, CALIDAD usa Estado)
+        # admite State y Estado
         state_name = "State" if "State" in cols else ("Estado" if "Estado" in cols else None)
         if state_name is None:
             continue
         state, upd = cols.index(state_name), (cols.index("Updated") if "Updated" in cols else (cols.index("Actualizado") if "Actualizado" in cols else None))
         rows = [(i, cells(l)) for i, l in enumerate(lines) if i > head + 1 and ROW.match(l)]
-        # avisa filas mal formadas sin moverlas (longitud distinta, M-77)
+        # avisa filas mal formadas sin moverlas (longitud distinta)
         for i, c in rows:
             if len(c) != len(cols):
                 print(f"warn: {os.path.relpath(path, repo)}:{i+1} fila mal formada len {len(c)} != {len(cols)}: {lines[i][:80]}", file=sys.stderr)
@@ -145,7 +145,7 @@ def statuses(repo: str, dry: bool) -> list[str]:
             continue
         archive = os.path.join(os.path.dirname(path), "STATUS-archivo.md")
         header = (f"# Archivo de {os.path.basename(os.path.dirname(path))}\n\nFilas closed que "
-                  f"salieron de STATUS.md (D-283). Nunca se editan.\n\n{lines[head]}\n{lines[head + 1]}\n")
+                  f"salieron de STATUS.md. Nunca se editan.\n\n{lines[head]}\n{lines[head + 1]}\n")
         append_new(archive, [lines[i] for i in moving], header, dry)
         if not dry:
             gone = set(moving)
