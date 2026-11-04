@@ -48,6 +48,16 @@ class LanzarTest(unittest.TestCase):
 
         return runner
 
+    def test_raiz_que_no_es_el_buzon_se_rechaza_sin_encolar(self):
+        pr = self._prompt()
+        project = self.tmp.name  # contiene inbox/: es el proyecto
+        with self.assertRaisesRegex(ValueError, "quisiste decir .*inbox"):
+            inbox.lanzar(project, "PM-calidad", "CAL-99", pr)
+        with self.assertRaisesRegex(ValueError, "no existe"):
+            inbox.lanzar(os.path.join(self.tmp.name, "nada"), "PM-calidad", "CAL-99", pr)
+        self.assertFalse(os.path.exists(os.path.join(project, ".lanzar")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "nada")))
+
     def test_un_pedido_produce_exactamente_una_llamada(self):
         pr = self._prompt()
         qid = inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)

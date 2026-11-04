@@ -233,6 +233,13 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
     prompt = os.path.abspath(os.path.expanduser(prompt))
     if not os.path.isfile(prompt):
         raise ValueError(f"prompt not found: {prompt}")
+    # El lanzador solo observa <buzón>/.lanzar/: un pedido encolado en otra carpeta queda varado
+    # sin error (2026-11-04: 6 pedidos en <proyecto>/.lanzar/ porque el PM pasó la raíz del
+    # proyecto). Una raíz que no existe o que contiene un inbox/ no es el buzón.
+    if os.path.isdir(os.path.join(root, "inbox")):
+        raise ValueError(f"{root} es el proyecto, no el buzón; ¿quisiste decir {os.path.join(root, 'inbox')}?")
+    if not os.path.isdir(root):
+        raise ValueError(f"no existe el buzón {root}")
     qdir = os.path.join(root, ".lanzar")
     os.makedirs(qdir, exist_ok=True)
     # un ticket no se encola dos veces mientras haya uno en cola,
