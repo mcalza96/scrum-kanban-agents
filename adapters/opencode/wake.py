@@ -11,8 +11,8 @@ It finds the PM's session in opencode's database: the newest top-level session t
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
 `opencode run --session` through the running service, so the turn shows live in the PM's window.
 
-- At most CAP wakes per PM per hour. Past that the message waits for the human, and the log
-  says so.
+- No cap on wakes (owner, 2026-11-04: «quita el límite de despertares»). The HOLD of avisos and
+  the busy check are what keep a session from being flooded.
 - One waker per PM at a time (a lock). It loops while new unread ids keep arriving, and never wakes
   for an id an earlier wake already announced (the log says which): a PM that read a message and
   is waiting on someone is left alone, and acks, which also change the mailbox, wake nobody.
@@ -32,7 +32,7 @@ It finds the PM's session in opencode's database: the newest top-level session t
   (D-282, 2026-11-03): the PO got 196 messages from PMs in 24 h and 25 wakes in half an hour, nearly
   all status echoes.
 
-Every decision is one line in inbox/.wakes.log, which is also what the cap counts.
+Every decision is one line in inbox/.wakes.log.
 
 The sweep exists because a PM that ends its turn sleeps until a message arrives, even with free
 dev slots and launchable tickets. For every PM-* mailbox it nudges the PM's session once per idle
@@ -67,7 +67,6 @@ import candados  # noqa: E402
 import inbox  # noqa: E402
 import stale_worktrees  # noqa: E402
 
-CAP = 40         # wakes per PM per rolling hour (owner decision, 2026-11-03)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
@@ -101,20 +100,6 @@ def log(root: str, pm: str, what: str) -> None:
     stamp = datetime.datetime.now().astimezone().strftime(inbox.FMT)
     with open(log_path(root), "a", encoding="utf-8") as f:
         f.write(f"{stamp} {pm} {what}\n")
-
-
-def wakes_last_hour(root: str, pm: str, now: datetime.datetime) -> int:
-    n = 0
-    try:
-        with open(log_path(root), encoding="utf-8") as f:
-            for line in f:
-                parts = line.split(" ", 5)
-                if len(parts) > 4 and parts[3] == pm and parts[4] == "woke":
-                    age = inbox.age_hours(" ".join(parts[:3]), now)
-                    n += age is not None and age < 1
-    except FileNotFoundError:
-        pass
-    return n
 
 
 def commands(data: str) -> list[str]:
@@ -548,7 +533,7 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
     [encargo] firmado `lanzador` que dice «terminó y entregó sin avisarte» (hay commit, fila en
     reported o artefacto) o «terminó sin entregar»,
     con los commits que la sesión hizo y si la fila está en reported. Un solo aviso por sesión
-    (dedup .aviso-dev con flock). No edita STATUS y no cuenta para CAP. Corre cada minuto
+    (dedup .aviso-dev con flock). No edita STATUS. Corre cada minuto
     desde el plugin inbox.js (`wake.py --reap`) y cada 15 min desde el barrido.
     """
     if not os.path.exists(db_path):
@@ -665,7 +650,7 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
     now = time.time() if now is None else now
     done: list[str] = []
-    # aviso de dev terminado, un solo punto que cubre 100% (barrido). No cuenta para CAP.
+    # aviso de dev terminado, un solo punto que cubre 100% (barrido).
     try:
         done.extend(reap_finished(root, DB))
     except Exception:
@@ -705,8 +690,7 @@ def reap(root: str, older: float = 24.0) -> list[str]:
     return lines or ["nothing to reap"]
 
 
-def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, cap: int = CAP,
-        send=None) -> str:
+def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, send=None) -> str:
     """Wake pm's session while new unread ids arrive. Returns the last decision logged."""
     send = send or (lambda sid, text: subprocess.run([opencode(), "run", "--session", sid, text],
                                                      stdout=subprocess.DEVNULL,
@@ -718,12 +702,12 @@ def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, cap: int = C
             return "another waker is on it"
         db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
         try:
-            return _loop(db, root, pm, wait, poll, cap, send)
+            return _loop(db, root, pm, wait, poll, send)
         finally:
             db.close()
 
 
-def _loop(db, root, pm, wait, poll, cap, send) -> str:
+def _loop(db, root, pm, wait, poll, send) -> str:
     holding = False
     while True:
         msgs = [m for m in inbox.messages(root, pm) if m.unread]
@@ -753,10 +737,6 @@ def _loop(db, root, pm, wait, poll, cap, send) -> str:
             time.sleep(poll)
         if busy(db, sid):
             what = f"skipped: {sid} busy for {wait / 60:.0f} min"
-            log(root, pm, what)
-            break
-        if wakes_last_hour(root, pm, datetime.datetime.now().astimezone()) >= cap:
-            what = f"capped: {cap} wakes in the last hour, {' '.join(m.id for m in new)} wait for the human"
             log(root, pm, what)
             break
         what = f"woke {sid} for {' '.join(unread)}"

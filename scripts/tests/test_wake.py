@@ -246,8 +246,10 @@ class WakeTest(unittest.TestCase):
         for i in range(3):
             self.wake()
             inbox.send(self.root, "PM-ui", "PO", f"next {i}")
-        self.assertTrue(self.wake(cap=3).startswith("capped: 3 wakes"))
-        self.assertEqual(len(self.sent), 3)
+        # Sin tope (dueño, 2026-11-04): el cuarto despertar en la hora también despierta.
+        self.wake()
+        self.assertEqual(len(self.sent), 4)
+        self.assertFalse(hasattr(wake, "CAP"))
         with open(os.path.join(self.root, ".wake-PM-ui.lock"), "w") as held:
             fcntl.flock(held, fcntl.LOCK_EX)
             self.assertEqual(self.wake(), "another waker is on it")

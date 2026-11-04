@@ -175,7 +175,6 @@ class ReapFinishedTest(unittest.TestCase):
         done = wake.sweep(self.root, now=time.time(), send=lambda sid, text: None)
         # reap should be in done
         self.assertTrue(any("ses_dev_sweep" in d for d in done))
-        # CAP not affected: wakes_last_hour should not count reap
         # sweep nudge may have happened but reap is separate
         msgs = inbox.messages(self.root, "PM-calidad")
         # one from lanzador plus one from PO
