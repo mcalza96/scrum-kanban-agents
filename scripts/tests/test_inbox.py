@@ -41,6 +41,17 @@ class InboxTest(unittest.TestCase):
                          [("M-1", "PM-ui-2", "SIM-26 closed", "unread"),
                           ("M-2", "PO", "second", "unread")])
 
+    # Candado 2026-11-04: archivar saca filas del buzón vivo; el id siguiente no puede repetir
+    # uno archivado (M-192 quedó dos veces en PO). PM-ui-2 no cuenta para PM-ui.
+    def test_id_no_repite_uno_archivado(self):
+        arch = os.path.join(self.root, "archivo")
+        os.makedirs(arch)
+        for name, mid in (("PM-ui-2026-10.md", 7), ("PM-ui-rescate-2026-11-04.md", 9), ("PM-ui-2-2026-10.md", 50)):
+            with open(os.path.join(arch, name), "w", encoding="utf-8") as f:
+                f.write(inbox.HEADER.format(pm="x") + inbox.Message(f"M-{mid}", "PO", T0, "x", T0).row() + "\n")
+        self.assertEqual(inbox.send(self.root, "PM-ui", "PO", "nuevo", T0), "M-10")
+        self.assertEqual(inbox.send(self.root, "PM-ui-2", "PO", "nuevo", T0), "M-51")
+
     def test_pipes_and_newlines_survive(self):
         inbox.send(self.root, "PM-ui", "PO", "a | b\nc", T0)
         self.assertEqual(inbox.messages(self.root, "PM-ui")[0].text, "a \\| b c")

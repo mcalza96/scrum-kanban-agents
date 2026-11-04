@@ -175,7 +175,8 @@ class Cal29VerificaDoneTest(unittest.TestCase):
 
     # CAL-29 candado: lanzar registra entrega esperada sin bloquear
     def test_lanzar_registra_expected(self):
-        prompt = os.path.join(self.tmp.name, "prompt.md")
+        os.makedirs(os.path.join(self.project, "epic-calidad", "prompts"), exist_ok=True)
+        prompt = os.path.join(self.project, "epic-calidad", "prompts", "CAL-95.md")
         with open(prompt, "w", encoding="utf-8") as f:
             f.write("TO: dev CAL-95\ntarea")
         qid = inbox.lanzar(self.root, "PM-calidad", "CAL-95", prompt)
@@ -195,6 +196,11 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         with open(os.path.join(self.root, ".lanzar", "log"), encoding="utf-8") as f:
             log = [json.loads(l) for l in f]
         self.assertTrue(any(e.get("expected") and "CAL-95" in e["expected"] for e in log))
+
+    # Candado 2026-11-04: sin epic-* en la ruta del prompt no se inventa epic-calidad.
+    def test_expected_no_inventa_epic(self):
+        self.assertIsNone(inbox._infer_expected("X-1", os.path.join(self.tmp.name, "p.md")))
+        self.assertEqual(inbox._infer_expected("X-1", "/r/epic-ui/prompts/X-1.md"), "epic-ui/reports/X-1.md")
 
     # dedup con flock y un solo aviso
     def test_un_solo_aviso_con_flock(self):

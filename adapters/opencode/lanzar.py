@@ -32,28 +32,12 @@ import sqlite3
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
+import inbox  # noqa: E402
+
 MAX_PER_PM = 1
 MAX_GLOBAL = 4
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
-
-# CAL-29: entrega esperada por ticket (reporte/ruta) para verificación "succeeded no es entrega"
-def _infer_expected(ticket: str, prompt_path: str, repo: str) -> str | None:
-    """Infiere el artefacto esperado para el ticket sin bloquear el lanzamiento."""
-    if not ticket or ticket == "CAL-?":
-        return None
-    # si el prompt ya sugiere epic, úsalo; si no, usa epic-calidad por defecto
-    try:
-        pp = os.path.abspath(prompt_path) if prompt_path else ""
-        # busca epic-* en la ruta del prompt
-        m = re.search(r"/(epic-[^/]+)/", pp)
-        epic = m.group(1) if m else "epic-calidad"
-        # reporte canónico: epic/reports/<ticket>.md
-        rel = os.path.join(epic, "reports", f"{ticket}.md")
-        # devuelve ruta relativa al repo (para que el verificador la resuelva con repo+rel)
-        return rel
-    except Exception:
-        return os.path.join("epic-calidad", "reports", f"{ticket}.md")
-
 
 def qdir_of(root: str) -> str:
     return os.path.join(root, ".lanzar")
@@ -258,7 +242,7 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> s
             _notify_launch_error(root, entry, err or out or "no session id")
             return None
         # trazabilidad — CAL-29: registra entrega esperada sin bloquear
-        expected = entry.get("expected") or _infer_expected(ticket, prompt_path, repo)
+        expected = entry.get("expected") or inbox._infer_expected(ticket, prompt_path)
         log_entry = {
             "ts": datetime.datetime.now().astimezone().isoformat(),
             "pm": entry.get("pm"),
@@ -296,11 +280,8 @@ def _fallback_session_id(db_path: str, ticket: str) -> str | None:
 
 
 def _notify_launch_error(root: str, entry: dict, msg: str) -> None:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../scripts"))
     try:
-        import inbox  # type: ignore
-
-        inbox.send(root, entry.get("pm", "PM-calidad"), "lanzador", f"{entry.get('ticket')} no lanzó: {msg} (sesión sin id)")
+        inbox.send(root, (entry.get("pm") or "PO"), "lanzador", f"{entry.get('ticket')} no lanzó: {msg} (sesión sin id)")
     except Exception:
         pass
 
@@ -315,11 +296,6 @@ def _reap_failed(root: str, db_path: str = DB) -> None:
         with open(lp, encoding="utf-8") as f:
             entries = [json.loads(l) for l in f if l.strip()]
     except FileNotFoundError:
-        return
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../scripts"))
-    try:
-        import inbox
-    except Exception:
         return
     # dedup by checking inbox/.lanzar/.failed sentinel
     failed_mark = os.path.join(qdir_of(root), ".failed")
@@ -339,7 +315,7 @@ def _reap_failed(root: str, db_path: str = DB) -> None:
             # check if dev already sent a mailbox message: look for any message that mentions ticket+session?
             # heuristic: if PM mailbox already has a message from dev about this ticket, don't duplicate.
             # Simple: always notify once.
-            inbox.send(root, e.get("pm", "PM-calidad"), "lanzador", f"{e.get('ticket')} dev {sid} murió sin reportar: {err}")
+            inbox.send(root, (e.get("pm") or "PO"), "lanzador", f"{e.get('ticket')} dev {sid} murió sin reportar: {err}")
             seen.add(sid)
     if seen:
         # persist marks

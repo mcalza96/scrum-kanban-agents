@@ -452,7 +452,7 @@ def _expected_exists(expected: str | None, repo: str) -> bool:
     """CAL-29: verifica si el artefacto esperado existe (reporte/archivo)."""
     if not expected:
         return False
-    # expected es relativo al repo (ej epic-calidad/reports/CAL-29.md)
+    # expected es relativo al repo (ej epic-x/reports/T-1.md)
     # permite patrón con * si viene de heurística
     if "*" in expected:
         return bool(glob.glob(os.path.join(repo, expected)))
@@ -486,10 +486,6 @@ def _has_delivery_evidence(db: sqlite3.Connection, sid: str, ticket: str | None,
                 os.path.join(repo, "epic-*", "reports", f"{ticket}.*")]:
         if glob.glob(pat):
             return True
-    # expected inferido como en lanzar.py
-    inferred = os.path.join("epic-calidad", "reports", f"{ticket}.md")
-    if _expected_exists(inferred, repo):
-        return True
     return False
 
 

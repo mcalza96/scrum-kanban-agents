@@ -111,6 +111,21 @@ def _aviso_imperativo(text: str) -> str | None:
     return None
 
 
+ARCHIVED = re.compile(r"^(?P<pm>.+)-(?:\d{4}-\d{2}|rescate-\d{4}-\d{2}-\d{2})\.md$")
+
+
+def _archived_max(root: str, pm: str) -> int:
+    """Highest id this mailbox ever had in inbox/archivo/. Archiving moves rows out of the live
+    file, so numbering from the live file alone gave out the same id twice (M-192 on 2026-11-04)."""
+    top = 0
+    for path in glob.glob(os.path.join(root, "archivo", "*.md")):
+        m = ARCHIVED.match(os.path.basename(path))
+        if m and m.group("pm") == pm:
+            with open(path, encoding="utf-8") as f:
+                top = max([top] + [int(x.id[2:]) for x in parse(f.read())])
+    return top
+
+
 def _locked_update(path: str, change) -> str:
     """Apply change(text) -> (new_text, result) under an exclusive lock: PMs write concurrently."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -136,8 +151,8 @@ def send(root: str, to: str, sender: str, text: str, when: str | None = None) ->
 
     def change(old: str):
         old = old or HEADER.format(pm=to)
-        ids = [int(m.id[2:]) for m in parse(old)]
-        mid = f"M-{max(ids, default=0) + 1}"
+        ids = [int(m.id[2:]) for m in parse(old)] + [_archived_max(root, to)]
+        mid = f"M-{max(ids) + 1}"
         row = Message(mid, sender, when or now(), text, "unread").row()
         return old.rstrip("\n") + "\n" + row + "\n", mid
 
@@ -203,14 +218,14 @@ def _infer_expected(ticket: str, prompt: str) -> str | None:
     try:
         pp = os.path.abspath(prompt) if prompt else ""
         m = re.search(r"/(epic-[^/]+)/", pp)
-        epic = m.group(1) if m else "epic-calidad"
-        return os.path.join(epic, "reports", f"{ticket}.md")
+        return os.path.join(m.group(1), "reports", f"{ticket}.md") if m else None
     except Exception:
-        return os.path.join("epic-calidad", "reports", f"{ticket}.md")
+        return None
 
 
-def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str = "PM-calidad") -> str:
+def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = None) -> str:
     """Encola un pedido en inbox/.lanzar/. Vuelve al instante con el id del pedido."""
+    sender = sender or pm
     if not NAME.match(pm):
         raise ValueError(f"bad pm {pm!r}")
     if not re.match(r"^[A-Za-z0-9._-]+$", ticket):
@@ -341,10 +356,10 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("root")
     lz = sub.add_parser("lanzar", help="encola un dev para el lanzador del servicio")
     lz.add_argument("root")
-    lz.add_argument("--pm", required=True, help="PM dueño, ej. PM-calidad")
+    lz.add_argument("--pm", required=True, help="PM dueño, ej. PM-ui")
     lz.add_argument("--ticket", required=True, help="id del ticket, ej. CAL-25")
     lz.add_argument("--prompt", required=True, help="ruta al prompt del dev")
-    lz.add_argument("--from", dest="sender", default="PM-calidad", help="quien pide el lanzamiento")
+    lz.add_argument("--from", dest="sender", default=None, help="quien pide el lanzamiento (por defecto, el PM)")
     args = ap.parse_args(argv)
 
     try:
