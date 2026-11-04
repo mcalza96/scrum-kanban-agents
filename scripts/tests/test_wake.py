@@ -197,6 +197,23 @@ class WakeTest(unittest.TestCase):
         self.assertAlmostEqual(wake.held([msg("M-10", "[aviso] M-10 referencia a M-82 sin palabra clave", 19)], 900, now), 840)
         self.assertIsNotNone(wake.M_CITE_RE.search("M-82"))
 
+    def test_M85_hold_10min_y_cita_para_todos_los_PM(self):
+        # M-85: HOLD PO de 15 a 10 min, y parche reply-to-encargo aplica a TODOS los PMs
+        self.assertEqual(wake.HOLD.get("PO"), 10 * 60)
+        # sin el fix HOLD sería 900 y este held sería 840; con fix 600
+        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
+        def msg_pm(pm, mid, text, minute):
+            sent = now.replace(minute=minute).strftime(inbox.FMT)
+            return inbox.Message(mid, pm, sent, text, "unread")
+        # para PO con hold 10 min, aviso rutina 1 min queda 540
+        self.assertAlmostEqual(wake.held([msg_pm("PO", "M-1", "[aviso] rutina", 19)], wake.HOLD.get("PO", 0), now), 540)
+        # para PM-ui con hold simulado 10 min, cita encargo+M debe despertar (aplica a todos, no solo PO)
+        citing_ui = msg_pm("PM-ui", "M-723", "[aviso] M-723 (respuesta a mi encargo M-82) listo", 19)
+        self.assertEqual(wake.held([citing_ui], 10 * 60, now), 0)
+        # rutina sin cita sigue held 540 con hold 10 (sin cambiar cadencia rutina)
+        routine_ui = msg_pm("PM-ui", "M-99", "[aviso] rutina normal", 19)
+        self.assertAlmostEqual(wake.held([routine_ui], 10 * 60, now), 540)
+
     def test_the_po_holds_avisos_until_a_bloqueo_arrives(self):
         self.session("ses_po", f"inbox.py read {self.root} PO", 1)
         inbox.send(self.root, "PO", "PM-ui", "SIM-1 cerrado")

@@ -68,7 +68,7 @@ CAP = 40         # wakes per PM per rolling hour (owner decision, 2026-11-03)
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
-HOLD = {"PO": 15 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision, D-282)
+HOLD = {"PO": 10 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision, D-282 → M-85 10 min)
 URGENT = re.compile(r"\s*\[(bloqueo|encargo|decisi[oó]n)\]", re.IGNORECASE)
 # M-83: si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro aunque sea aviso
 M_CITE_RE = re.compile(r"\bM-(\d+)\b")
