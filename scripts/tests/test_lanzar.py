@@ -138,6 +138,33 @@ class LanzarTest(unittest.TestCase):
         msgs2 = inbox.messages(self.root, "PM-calidad")
         self.assertEqual(len(msgs), len(msgs2))
 
+    def test_prompt_sin_bloque_de_cierre_se_completa_con_inbox_send(self):
+        # M-88 arreglo 1: todo prompt lanzado debe llevar inbox.py send --to <PM>
+        pr = self._prompt("TO: dev CAL-99\nsin bloque")
+        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        runner = self._runner_once("ses_close")
+        sid = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db)
+        self.assertEqual(sid, "ses_close")
+        self.assertEqual(len(self.calls), 1)
+        prompt_enviado = self.calls[0][1]
+        self.assertIn("inbox.py send", prompt_enviado)
+        self.assertIn("--to PM-calidad", prompt_enviado)
+        self.assertIn(self.root, prompt_enviado)
+        # helpers directos
+        self.assertFalse(lanzar._has_close_block("sin nada", "PM-calidad"))
+        self.assertTrue(lanzar._has_close_block(f"inbox.py send --to PM-calidad", "PM-calidad"))
+        injected = lanzar._ensure_close_block("hola", "PM-calidad", self.root, "CAL-99")
+        self.assertIn("inbox.py send --to PM-calidad", injected)
+
+    def test_prompt_con_bloque_no_se_duplica(self):
+        pr = self._prompt(f"hola\npython3 inbox.py send --to PM-calidad --from dev-CAL-99 {self.root} aviso")
+        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        runner = self._runner_once("ses_ok")
+        sid = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db)
+        self.assertEqual(sid, "ses_ok")
+        prompt_enviado = self.calls[0][1]
+        self.assertEqual(prompt_enviado.count("inbox.py send"), 1)
+
     def test_estatico_inbox_js_lanza_solo_desde_servicio_y_no_hay_sleep_en_loop(self):
         p = os.path.join(HERE, "../../adapters/opencode/inbox.js")
         txt = open(p, encoding="utf-8").read()

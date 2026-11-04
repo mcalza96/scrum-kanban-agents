@@ -189,6 +189,25 @@ def try_launch_one(
     return None
 
 
+def _has_close_block(text: str, pm: str) -> bool:
+    return "inbox.py send" in text and f"--to {pm}" in text
+
+
+def _close_block(pm: str, root: str, ticket: str) -> str:
+    # Ruta de inbox.py resuelta desde este archivo, con pm y root ya concretos
+    inbox_py = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts/inbox.py"))
+    return (
+        f'\n\n5. Tell the PM: `python3 {inbox_py} send --to {pm} --from dev-{ticket} {root} '
+        f'"[aviso] {ticket} reported: <report path>"`.\n'
+    )
+
+
+def _ensure_close_block(text: str, pm: str, root: str, ticket: str) -> str:
+    if _has_close_block(text, pm):
+        return text
+    return text.rstrip() + _close_block(pm, root, ticket)
+
+
 def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> str | None:
     prompt_path = entry.get("prompt", "")
     try:
@@ -202,6 +221,8 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> s
             pass
         return None
     ticket = entry.get("ticket", "CAL-?")
+    # M-88 arreglo 1: todo prompt lleva el bloque de cierre con PM y raíz resueltos; si falta lo agrega
+    prompt_text = _ensure_close_block(prompt_text, entry.get("pm", ""), root, ticket)
     title = f"dev {ticket}"
     # directory: repo that holds inbox/
     repo = os.path.dirname(os.path.abspath(root))
