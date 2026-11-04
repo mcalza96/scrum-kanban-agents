@@ -36,6 +36,24 @@ MAX_PER_PM = 1
 MAX_GLOBAL = 4
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
 
+# CAL-29: entrega esperada por ticket (reporte/ruta) para verificación "succeeded no es entrega"
+def _infer_expected(ticket: str, prompt_path: str, repo: str) -> str | None:
+    """Infiere el artefacto esperado para el ticket sin bloquear el lanzamiento."""
+    if not ticket or ticket == "CAL-?":
+        return None
+    # si el prompt ya sugiere epic, úsalo; si no, usa epic-calidad por defecto
+    try:
+        pp = os.path.abspath(prompt_path) if prompt_path else ""
+        # busca epic-* en la ruta del prompt
+        m = re.search(r"/(epic-[^/]+)/", pp)
+        epic = m.group(1) if m else "epic-calidad"
+        # reporte canónico: epic/reports/<ticket>.md
+        rel = os.path.join(epic, "reports", f"{ticket}.md")
+        # devuelve ruta relativa al repo (para que el verificador la resuelva con repo+rel)
+        return rel
+    except Exception:
+        return os.path.join("epic-calidad", "reports", f"{ticket}.md")
+
 
 def qdir_of(root: str) -> str:
     return os.path.join(root, ".lanzar")
@@ -239,7 +257,8 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> s
         if not sid:
             _notify_launch_error(root, entry, err or out or "no session id")
             return None
-        # trazabilidad
+        # trazabilidad — CAL-29: registra entrega esperada sin bloquear
+        expected = entry.get("expected") or _infer_expected(ticket, prompt_path, repo)
         log_entry = {
             "ts": datetime.datetime.now().astimezone().isoformat(),
             "pm": entry.get("pm"),
@@ -249,6 +268,8 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> s
             "from": entry.get("from"),
             "id": entry.get("id"),
         }
+        if expected:
+            log_entry["expected"] = expected
         _append_log(root, log_entry)
         # el pedido ya estaba en .claim, lo borramos
         try:

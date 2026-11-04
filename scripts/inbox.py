@@ -196,6 +196,19 @@ def age_hours(sent: str, today: datetime.datetime) -> float | None:
         return None
 
 
+def _infer_expected(ticket: str, prompt: str) -> str | None:
+    """CAL-29: artefacto esperado (reporte/ruta) inferido del ticket/prompt, sin bloquear."""
+    if not ticket or ticket == "CAL-?":
+        return None
+    try:
+        pp = os.path.abspath(prompt) if prompt else ""
+        m = re.search(r"/(epic-[^/]+)/", pp)
+        epic = m.group(1) if m else "epic-calidad"
+        return os.path.join(epic, "reports", f"{ticket}.md")
+    except Exception:
+        return os.path.join("epic-calidad", "reports", f"{ticket}.md")
+
+
 def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str = "PM-calidad") -> str:
     """Encola un pedido en inbox/.lanzar/. Vuelve al instante con el id del pedido."""
     if not NAME.match(pm):
@@ -273,8 +286,11 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str = "PM-calid
         while os.path.exists(path):
             counter += 1
             path = os.path.join(qdir, f"{uniq}-{counter}.json")
+        expected = _infer_expected(ticket, prompt)
         data = {"id": uniq, "pm": pm, "ticket": ticket, "prompt": prompt, "from": sender,
                 "created": now(), "status": "pending"}
+        if expected:
+            data["expected"] = expected
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)

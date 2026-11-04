@@ -72,6 +72,9 @@ HOLD = {"PO": 15 * 60}  # seconds a mailbox keeps its avisos before waking (owne
 URGENT = re.compile(r"\s*\[(bloqueo|encargo|decisi[oó]n)\]", re.IGNORECASE)
 IDLE = 20 * 60
 STALE = 12 * 3600
+# CAL-29: ventana para "terminó sin entregar" (evita inundación M-260–M-617)
+VENTANA_HORAS = 24
+VENTANA_MS = VENTANA_HORAS * 3600 * 1000
 NUDGE_MARK = "Barrido automático"
 NUDGE = (NUDGE_MARK + ": {pm} lleva {minutes} min sin actividad. Relee tu STATUS: si tienes "
          "reportes por verificar, o cupo de devs libre y tickets pending sin dependencia abierta, "
@@ -281,13 +284,22 @@ def _ticket_from_prompt(db: sqlite3.Connection, sid: str) -> str | None:
     return m2.group(1) if m2 else None
 
 
+# CAL-29 M-70: regex explícita que excluye timestamps decimales de 13 dígitos
+# 1793725787505 es solo dígitos y 13 largo -> no es sha hex; shas válidos 7-40 hex con al
+# menos una letra o longitud !=13 si son solo dígitos. Evita confundir timestamp con sha.
+_TIMESTAMP_13_RE = re.compile(r"^\d{13}$")
+
+
 def _commits_of(db: sqlite3.Connection, sid: str) -> list[str]:
     rows = db.execute("select data from session_message where session_id = ? and type = 'assistant'"
                       " and data like '%git commit%'", (sid,)).fetchall()
     shas: list[str] = []
     seen: set[str] = set()
     for (data,) in rows:
+        # \b[0-9a-f]{7,40}\b captura shas hex; el filtro posterior excluye \d{13} puros
         for sha in re.findall(r"\b[0-9a-f]{7,40}\b", data, re.IGNORECASE):
+            if _TIMESTAMP_13_RE.match(sha):
+                continue
             low = sha.lower()
             if low not in seen:
                 # evita falsos positivos muy cortos que sean palabras comunes
@@ -341,6 +353,108 @@ def _is_reported(ticket: str | None, repo: str) -> bool:
                             return True
             except Exception:
                 continue
+    return False
+
+
+def _load_log_sids(root: str) -> set[str] | None:
+    """CAL-29: sids que pasaron por lanzar/log. None si log no existe/vacío (tests)."""
+    lp = os.path.join(root, ".lanzar", "log")
+    try:
+        with open(lp, encoding="utf-8") as f:
+            sids = set()
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                    sid = e.get("session")
+                    if sid:
+                        sids.add(sid)
+                except Exception:
+                    continue
+            return sids if sids else None
+    except FileNotFoundError:
+        return None
+
+
+def _load_log_expected(root: str) -> dict[str, str]:
+    """CAL-29: expected por sid desde log (si lanzador lo anotó)."""
+    lp = os.path.join(root, ".lanzar", "log")
+    out: dict[str, str] = {}
+    try:
+        with open(lp, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                    sid = e.get("session")
+                    exp = e.get("expected")
+                    if sid and exp:
+                        out[sid] = exp
+                except Exception:
+                    continue
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def _is_within_window(idle_ms: int | None, now_ms: int | None = None) -> bool:
+    """CAL-29: solo sesiones dentro de la ventana (24h). Valores legacy pequeños se consideran dentro."""
+    if idle_ms is None:
+        return False
+    # tests usan 1/2 como busy/idle legacy
+    if idle_ms < 1000000000000:
+        return True
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    return (now_ms - idle_ms) < VENTANA_MS
+
+
+def _expected_exists(expected: str | None, repo: str) -> bool:
+    """CAL-29: verifica si el artefacto esperado existe (reporte/archivo)."""
+    if not expected:
+        return False
+    # expected es relativo al repo (ej epic-calidad/reports/CAL-29.md)
+    # permite patrón con * si viene de heurística
+    if "*" in expected:
+        return bool(glob.glob(os.path.join(repo, expected)))
+    abs_path = os.path.join(repo, expected) if not os.path.isabs(expected) else expected
+    if os.path.exists(abs_path):
+        return True
+    # fallback: glob por si es relativo sin epic específico
+    return bool(glob.glob(os.path.join(repo, expected)))
+
+
+def _has_delivery_evidence(db: sqlite3.Connection, sid: str, ticket: str | None, repo: str, root: str) -> bool:
+    """CAL-29: entrega verificable por script — mensaje en buzón del PM o artefacto comprometido."""
+    if not ticket or ticket == "?":
+        # ticket desconocido no puede tener reported/file, solo inbox send cuenta
+        if _has_inbox_send(db, sid):
+            return True
+        return False
+    # 1) mensaje en buzón del PM con resultado
+    if _has_inbox_send(db, sid):
+        return True
+    # 2) fila STATUS en reported
+    if _is_reported(ticket, repo):
+        return True
+    # 3) artefacto archivo: expected del log o reporte canónico
+    log_expected = _load_log_expected(root)
+    exp = log_expected.get(sid)
+    if exp and _expected_exists(exp, repo):
+        return True
+    # reporte canónico por ticket
+    for pat in [os.path.join(repo, "epic-*", "reports", f"{ticket}.md"),
+                os.path.join(repo, "epic-*", "reports", f"{ticket}.*")]:
+        if glob.glob(pat):
+            return True
+    # expected inferido como en lanzar.py
+    inferred = os.path.join("epic-calidad", "reports", f"{ticket}.md")
+    if _expected_exists(inferred, repo):
+        return True
     return False
 
 
@@ -409,29 +523,36 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     return "PO"
 
 
-def reap_finished(root: str, db_path: str = DB) -> list[str]:
-    """Avisa al PM cuando un dev termina bien (succeeded) y no avisó por buzón.
+def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) -> list[str]:
+    """Avisa al PM cuando un dev termina bien (succeeded) sin entrega verificable (CAL-29).
 
-    Escanea session_v2 donde time_idle > time_busy y outcome=='succeeded' (último idle),
-    filtra devs (parent_id IS NOT NULL OR lower(title) LIKE 'dev%'), verifica que no hay
-    inbox.py send previo, y si no está en inbox/.lanzar/.aviso-dev (flock, una línea por sid)
-    envía vía inbox.send(root, pm, "lanzador", msg) con ticket, session id, commits y
-    reported sí/no. Un aviso por sesión, no edita STATUS, no cuenta para CAP.
+    Escanea session_v2 donde time_idle > time_busy y outcome=='succeeded',
+    filtra devs, y solo considera sesiones dentro de la ventana (24h) y que
+    estén en inbox/.lanzar/log (corrige M-260–M-617 sin ventana que barrió historial
+    y marcó `? dev`). Un dev cuenta como éxito solo si tiene evidencia por script:
+    mensaje en buzón del PM con resultado o artefacto comprometido (reporte/archivo/fila
+    STATUS). Sin eso se avisa con "terminó sin entregar" (distingue de "murió sin
+    reportar" para failed). Un solo aviso por sesión (dedup .aviso-dev con flock),
+    con ventana, solo lanzar/log, no edita STATUS, no cuenta para CAP.
     """
+    if window_ms is None:
+        window_ms = VENTANA_MS
     if not os.path.exists(db_path):
         return []
     aviso_path = os.path.join(root, ".lanzar", ".aviso-dev")
     os.makedirs(os.path.dirname(aviso_path), exist_ok=True)
     repo = os.path.dirname(os.path.abspath(root))
     done: list[str] = []
+    # filtros CAL-29: solo lanzar/log y ventana
+    log_sids = _load_log_sids(root)
+    now_ms = int(time.time() * 1000)
     # 1) recolecta candidatos fuera del lock (DB)
-    candidates: list[tuple[str, str | None, str | None]] = []  # (sid, title, parent_id)
+    candidates: list[tuple[str, str | None, str | None, int | None]] = []  # (sid, title, parent_id, idle)
     try:
         db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except Exception:
         return []
     try:
-        # intenta con title, si falla (tests sin title) reintenta sin title
         try:
             rows = db.execute("select id, parent_id, title, time_busy, time_idle from session_v2").fetchall()
         except sqlite3.OperationalError:
@@ -448,9 +569,13 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
             out = _last_idle_outcome(db, sid)
             if out != "succeeded":
                 continue
-            if _has_inbox_send(db, sid):
+            # CAL-29: ventana temporal
+            if not _is_within_window(idle, now_ms):
                 continue
-            candidates.append((sid, title, parent_id))
+            # CAL-29: solo sesiones de lanzar/log (si hay log, filtra)
+            if log_sids is not None and sid not in log_sids:
+                continue
+            candidates.append((sid, title, parent_id, idle))
     finally:
         try:
             db.close()
@@ -458,14 +583,12 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
             pass
     if not candidates:
         return []
-    # 2) dedup con flock y envío
-    # abrimos DB de nuevo dentro del lock para resolver ticket/pm/commits sin carrera
+    # 2) dedup con flock y envío — CAL-29: verifica entrega por script
     try:
         db2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except Exception:
         return []
     try:
-        # lock file .aviso-dev
         with open(aviso_path, "a+", encoding="utf-8") as af:
             try:
                 fcntl.flock(af, fcntl.LOCK_EX)
@@ -473,21 +596,28 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
                 pass
             af.seek(0)
             seen = {line.strip() for line in af if line.strip()}
-            for sid, title, parent_id in candidates:
+            for sid, title, parent_id, _idle in candidates:
                 if sid in seen:
                     continue
-                # re-verifica has_send por si cambió entre colecta y lock
+                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
+                # CAL-29: done verificable — evidencia por script
+                # si tiene entrega (buzón o artefacto), se considera éxito y no se avisa
+                if _has_delivery_evidence(db2, sid, ticket if ticket != "?" else None, repo, root):
+                    # marca como visto para no re-evaluar en próximos barridos
+                    # (no avisamos, pero evitamos re-chequear indefinidamente si ya tiene entrega)
+                    # No escribimos en .aviso-dev para los entregados: solo dedup de no-entregados
+                    continue
+                # re-verifica por carrera (si llegó un send entre colecta y lock)
                 if _has_inbox_send(db2, sid):
                     seen.add(sid)
                     continue
-                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
-                # si ticket es "?" y no hay report, igual avisa con ticket desconocido
                 pm = _resolve_pm(db2, root, sid, title, parent_id)
                 shas = _commits_of(db2, sid)
                 reported = _is_reported(ticket if ticket != "?" else None, repo)
                 commits_txt = " ".join(shas) if shas else "—"
                 reported_txt = "sí" if reported else "no"
-                msg = (f"{ticket} dev {sid} terminó: commits {commits_txt} | "
+                # CAL-29: distingue "terminó sin entregar" de "murió sin reportar"
+                msg = (f"{ticket} dev {sid} terminó sin entregar: commits {commits_txt} | "
                        f"reported: {reported_txt} | session {sid}")
                 try:
                     inbox.send(root, pm, "lanzador", msg)
@@ -497,7 +627,6 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
                 af.flush()
                 seen.add(sid)
                 done.append(f"{pm} {sid} {ticket}: aviso lanzador")
-            # ensure persisted
             try:
                 af.flush()
             except Exception:
