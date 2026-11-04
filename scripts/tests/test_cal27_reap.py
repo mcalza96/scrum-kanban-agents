@@ -46,8 +46,10 @@ class ReapFinishedTest(unittest.TestCase):
             pass
         self.tmp.cleanup()
 
-    def add_session(self, sid, title="dev CAL-27", parent="ses_parent", busy=1, idle=2, to="PM-calidad", outcome="succeeded", with_commit=True, with_send=False):
-        # session_v2 row
+    def add_session(self, sid, title="dev CAL-27", parent="ses_parent", busy=None, idle=None, to="PM-calidad", outcome="succeeded", with_commit=True, with_send=False):
+        # session_v2 row: a dev that just finished (real epoch ms, so RECENT_MS applies)
+        idle = int(time.time() * 1000) if idle is None else idle
+        busy = idle - 60_000 if busy is None else busy
         self.db.execute(
             "insert into session_v2 (id, parent_id, title, directory, time_archived, time_busy, time_idle, time_created) values (?,?,?,?,?,?,?,?)",
             (sid, parent, title, self.project, None, busy, idle, int(time.time()*1000)),

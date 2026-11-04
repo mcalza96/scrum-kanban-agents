@@ -4,6 +4,8 @@
     wake.py inbox/ PM-ui         run by the opencode plugin (inbox.js) when a mailbox changes
     wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs, and reaps
                                  the repo's stale worktrees and idle agent postgres
+    wake.py --reap inbox/        run every minute by inbox.js: tells each PM that a dev of theirs
+                                 finished, unless the dev already wrote to them (reap_finished)
 
 It finds the PM's session in opencode's database: the newest top-level session that ran
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
@@ -77,6 +79,9 @@ STALE = 12 * 3600
 # CAL-29: ventana para "terminó sin entregar" (evita inundación M-260–M-617)
 VENTANA_HORAS = 24
 VENTANA_MS = VENTANA_HORAS * 3600 * 1000
+# A dev that delivered without telling its PM is news only while fresh. The plugin checks every
+# minute and the launchd sweep every 15, so 30 min covers both without replaying old sessions.
+RECENT_MS = 30 * 60 * 1000
 NUDGE_MARK = "Barrido automático"
 NUDGE = (NUDGE_MARK + ": {pm} lleva {minutes} min sin actividad. Relee tu STATUS: si tienes "
          "reportes por verificar, o cupo de devs libre y tickets pending sin dependencia abierta, "
@@ -302,35 +307,47 @@ def _ticket_from_prompt(db: sqlite3.Connection, sid: str) -> str | None:
     return m2.group(1) if m2 else None
 
 
-# CAL-29 M-70: regex explícita que excluye timestamps decimales de 13 dígitos
-# 1793725787505 es solo dígitos y 13 largo -> no es sha hex; shas válidos 7-40 hex con al
-# menos una letra o longitud !=13 si son solo dígitos. Evita confundir timestamp con sha.
-_TIMESTAMP_13_RE = re.compile(r"^\d{13}$")
+# What `git commit` prints on success: "[main 4c60886a] subject". Only that line names a commit
+# the session made; any other hex in the session (git log, a pasted diff, a timestamp) does not.
+COMMIT_LINE = re.compile(r"^\s*\[[^\]\s]+ ([0-9a-f]{7,40})\]", re.MULTILINE)
+GIT_COMMIT = re.compile(r"\bgit\b[^|;&\n]*\bcommit\b")  # also `git -C <repo> commit`
+
+
+def _shell_calls(db: sqlite3.Connection, sid: str):
+    """Yield (command, output) for every shell call the session ran."""
+    for (data,) in db.execute("select data from session_message where session_id = ?"
+                              " and type = 'assistant'", (sid,)):
+        try:
+            parts = json.loads(data).get("content") or []
+        except (ValueError, AttributeError):
+            continue
+        for part in parts:
+            if not isinstance(part, dict) or part.get("type") != "tool":
+                continue
+            state = part.get("state") or {}
+            cmd = (state.get("input") or {}).get("command") if isinstance(state.get("input"), dict) else None
+            if not cmd:
+                continue
+            out = state.get("content")
+            if isinstance(out, list):
+                out = "".join(c.get("text", "") for c in out if isinstance(c, dict))
+            yield cmd, out if isinstance(out, str) else ""
 
 
 def _commits_of(db: sqlite3.Connection, sid: str) -> list[str]:
-    rows = db.execute("select data from session_message where session_id = ? and type = 'assistant'"
-                      " and data like '%git commit%'", (sid,)).fetchall()
     shas: list[str] = []
-    seen: set[str] = set()
-    for (data,) in rows:
-        # \b[0-9a-f]{7,40}\b captura shas hex; el filtro posterior excluye \d{13} puros
-        for sha in re.findall(r"\b[0-9a-f]{7,40}\b", data, re.IGNORECASE):
-            if _TIMESTAMP_13_RE.match(sha):
-                continue
-            low = sha.lower()
-            if low not in seen:
-                # evita falsos positivos muy cortos que sean palabras comunes
-                if len(sha) >= 7:
-                    seen.add(low)
-                    shas.append(sha)
+    for cmd, out in _shell_calls(db, sid):
+        if GIT_COMMIT.search(cmd):
+            shas += [s for s in COMMIT_LINE.findall(out) if s not in shas]
     return shas
 
 
-def _has_inbox_send(db: sqlite3.Connection, sid: str) -> bool:
-    row = db.execute("select 1 from session_message where session_id = ? and type = 'assistant'"
-                     " and data like '%inbox.py send%' limit 1", (sid,)).fetchone()
-    return row is not None
+def _has_inbox_send(db: sqlite3.Connection, sid: str, to: str | None = None) -> bool:
+    """The session itself ran `inbox.py send` (to `to`, when given), not just read a file that
+    mentions it."""
+    want = re.compile(rf"--to[ =]['\"]?{re.escape(to)}\b") if to else None
+    return any("inbox.py send" in cmd and (want is None or want.search(cmd))
+               for cmd, _ in _shell_calls(db, sid))
 
 
 def _last_idle_outcome(db: sqlite3.Connection, sid: str) -> str | None:
@@ -542,16 +559,15 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
 
 
 def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) -> list[str]:
-    """Avisa al PM cuando un dev termina bien (succeeded) sin entrega verificable (CAL-29).
+    """Le avisa al PM cuando un dev suyo termina bien (succeeded), salvo que el dev ya le haya
+    escrito con `inbox.py send --to <PM>`: el PM no depende de que el dev se acuerde.
 
-    Escanea session_v2 donde time_idle > time_busy y outcome=='succeeded',
-    filtra devs, y solo considera sesiones dentro de la ventana (24h) y que
-    estén en inbox/.lanzar/log (corrige M-260–M-617 sin ventana que barrió historial
-    y marcó `? dev`). Un dev cuenta como éxito solo si tiene evidencia por script:
-    mensaje en buzón del PM con resultado o artefacto comprometido (reporte/archivo/fila
-    STATUS). Sin eso se avisa con "terminó sin entregar" (distingue de "murió sin
-    reportar" para failed). Un solo aviso por sesión (dedup .aviso-dev con flock),
-    con ventana, solo lanzar/log, no edita STATUS, no cuenta para CAP.
+    Solo sesiones de inbox/.lanzar/log y dentro de la ventana de 24 h (CAL-29). El aviso es un
+    [encargo] firmado `lanzador` que dice «terminó y entregó sin avisarte» (hay commit, fila en
+    reported o artefacto; solo si terminó hace menos de RECENT_MS) o «terminó sin entregar»,
+    con los commits que la sesión hizo y si la fila está en reported. Un solo aviso por sesión
+    (dedup .aviso-dev con flock). No edita STATUS y no cuenta para CAP. Corre cada minuto
+    desde el plugin inbox.js (`wake.py --reap`) y cada 15 min desde el barrido.
     """
     if window_ms is None:
         window_ms = VENTANA_MS
@@ -614,29 +630,27 @@ def reap_finished(root: str, db_path: str = DB, window_ms: int | None = None) ->
                 pass
             af.seek(0)
             seen = {line.strip() for line in af if line.strip()}
-            for sid, title, parent_id, _idle in candidates:
+            for sid, title, parent_id, idle in candidates:
                 if sid in seen:
                     continue
-                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
-                # CAL-29: done verificable — evidencia por script
-                # si tiene entrega (buzón o artefacto), se considera éxito y no se avisa
-                if _has_delivery_evidence(db2, sid, ticket if ticket != "?" else None, repo, root):
-                    # marca como visto para no re-evaluar en próximos barridos
-                    # (no avisamos, pero evitamos re-chequear indefinidamente si ya tiene entrega)
-                    # No escribimos en .aviso-dev para los entregados: solo dedup de no-entregados
-                    continue
-                # re-verifica por carrera (si llegó un send entre colecta y lock)
-                if _has_inbox_send(db2, sid):
+                pm = _resolve_pm(db2, root, sid, title, parent_id)
+                if _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
+                    af.write(sid + "\n")
                     seen.add(sid)
                     continue
-                pm = _resolve_pm(db2, root, sid, title, parent_id)
+                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
+                known = ticket if ticket != "?" else None
                 shas = _commits_of(db2, sid)
-                reported = _is_reported(ticket if ticket != "?" else None, repo)
-                commits_txt = " ".join(shas) if shas else "—"
-                reported_txt = "sí" if reported else "no"
-                # CAL-29: distingue "terminó sin entregar" de "murió sin reportar"
-                msg = (f"{ticket} dev {sid} terminó sin entregar: commits {commits_txt} | "
-                       f"reported: {reported_txt} | session {sid}")
+                delivered = bool(shas) or _has_delivery_evidence(db2, sid, known, repo, root)
+                if delivered and now_ms - (idle or 0) > RECENT_MS:
+                    af.write(sid + "\n")  # finished before this check existed: no stale news
+                    seen.add(sid)
+                    continue
+                reported_txt = "sí" if _is_reported(known, repo) else "no"
+                # CAL-29: "terminó sin entregar" is not "murió sin reportar" (failed)
+                what = "terminó y entregó sin avisarte" if delivered else "terminó sin entregar"
+                msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
+                       f"reported: {reported_txt} | session {sid}. Verifica y cierra o devuelve.")
                 try:
                     inbox.send(root, pm, "lanzador", msg)
                 except Exception:
@@ -780,6 +794,11 @@ def main(argv: list[str]) -> int:
         print("\n".join(reap(root)))
         for line in archivar.archive(os.path.dirname(root)):
             log(root, "archivo", line)
+            print(line)
+        return 0
+    if len(argv) == 2 and argv[0] == "--reap":
+        for line in reap_finished(os.path.abspath(argv[1])):
+            log(os.path.abspath(argv[1]), "aviso-dev", line)
             print(line)
         return 0
     if len(argv) != 2:

@@ -74,6 +74,9 @@ export default {
       lanzarKick();
       // reintento periódico: el intervalo reevalúa topes liberados
       setInterval(() => { try { spawn("python3", [LANZAR, ROOT], { detached: true, stdio: "ignore" }).unref(); } catch {} }, 60_000);
+      // Cada minuto: si un dev terminó y no le escribió a su PM, wake.py le avisa al PM (una vez
+      // por sesión). El PM no espera al dev ni revisa nada: lo despierta el aviso.
+      setInterval(() => { try { spawn("python3", [WAKE, "--reap", ROOT], { detached: true, stdio: "ignore" }).unref(); } catch {} }, 60_000);
     } catch {}
     await api.session.hook("context", async (req) => {
       try {

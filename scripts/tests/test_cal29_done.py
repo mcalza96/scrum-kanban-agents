@@ -95,32 +95,63 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertIn("terminó sin entregar", inbox.messages(self.root, "PM-calidad")[0].text)
 
-    # CAL-29 candado 1 inverso: succeeded con reporte válido sí cuenta
-    def test_succeeded_con_reporte_si_cuenta(self):
-        # crea STATUS con reported para CAL-91
+    # Dueño 2026-11-04 («ok, hagamos esto»): el PM no depende de que el dev le escriba. Un dev
+    # que entregó (fila en reported) sin avisarle genera un [encargo] al PM, distinto de
+    # «terminó sin entregar». Antes (CAL-29) este caso no avisaba y el PM no se enteraba.
+    def test_entrego_sin_avisar_le_avisa_al_pm(self):
         with open(os.path.join(self.project, "epic-calidad", "STATUS.md"), "w", encoding="utf-8") as f:
             f.write("| Ticket | Estado |\n| CAL-91 | reported |\n")
         self.add_dev("ses_con_report", ticket="CAL-91")
         self.write_log("ses_con_report", ticket="CAL-91")
-        has = wake._has_delivery_evidence(self.db, "ses_con_report", "CAL-91", self.project, self.root)
-        self.assertTrue(has, "con reporte válido debe contar como éxito")
+        self.assertTrue(wake._has_delivery_evidence(self.db, "ses_con_report", "CAL-91", self.project, self.root))
         out = wake.reap_finished(self.root, self.db_path)
-        # no debe avisar porque ya tiene entrega
-        self.assertEqual(len(out), 0)
-        self.assertEqual(len(inbox.messages(self.root, "PM-calidad")), 0)
+        self.assertEqual(len(out), 1)
+        text = inbox.messages(self.root, "PM-calidad")[0].text
+        self.assertTrue(text.startswith("[encargo] CAL-91 terminó y entregó sin avisarte"), text)
+        self.assertIn("reported: sí", text)
 
-    # CAL-29 candado 2: succeeded con artefacto archivo sí cuenta (expected del log)
-    def test_succeeded_con_artefacto_si_cuenta(self):
-        # crea archivo esperado
+    # Un artefacto (expected del log) también es entrega: aviso «entregó sin avisarte».
+    def test_artefacto_sin_avisar_le_avisa_al_pm(self):
         os.makedirs(os.path.join(self.project, "epic-calidad", "reports"), exist_ok=True)
         with open(os.path.join(self.project, "epic-calidad", "reports", "CAL-92.md"), "w", encoding="utf-8") as f:
             f.write("# CAL-92 reporte\n")
         self.add_dev("ses_con_file", ticket="CAL-92")
         self.write_log("ses_con_file", ticket="CAL-92", expected="epic-calidad/reports/CAL-92.md")
-        has = wake._has_delivery_evidence(self.db, "ses_con_file", "CAL-92", self.project, self.root)
-        self.assertTrue(has, "con artefacto archivo debe contar")
-        out = wake.reap_finished(self.root, self.db_path)
-        self.assertEqual(len(out), 0)
+        self.assertTrue(wake._has_delivery_evidence(self.db, "ses_con_file", "CAL-92", self.project, self.root))
+        self.assertEqual(len(wake.reap_finished(self.root, self.db_path)), 1)
+        self.assertIn("entregó sin avisarte", inbox.messages(self.root, "PM-calidad")[0].text)
+
+    # El dev que sí le escribió a su PM no genera aviso (el PM ya despertó con su mensaje).
+    def test_dev_que_avisa_a_su_pm_no_genera_aviso(self):
+        self.add_dev("ses_avisa", ticket="CAL-96", with_send=True)
+        self.write_log("ses_avisa", ticket="CAL-96")
+        self.assertEqual(wake.reap_finished(self.root, self.db_path), [])
+        self.assertEqual(inbox.messages(self.root, "PM-calidad"), [])
+
+    # Leer un archivo que menciona `inbox.py send` no es avisar: cuenta solo el comando corrido,
+    # y dirigido al PM. Caso real 2026-11-04: GATE-PM-auditoria y SIM-102 contaban como avisados.
+    def test_mencionar_inbox_send_no_es_avisar(self):
+        self.add_dev("ses_lee", ticket="CAL-97")
+        self.write_log("ses_lee", ticket="CAL-97")
+        lee = {"type": "tool", "state": {"input": {"command": "cat templates/PROMPT.md"},
+               "content": [{"type": "text", "text": "inbox.py send --to <PM> --from dev-<ID>"}]}}
+        otro = {"type": "tool", "state": {"input": {"command": "inbox.py send --to PO --from dev x 'y'"}}}
+        for i, part in enumerate((lee, otro)):
+            self.db.execute("insert into session_message values (?,?,?,?)",
+                            ("ses_lee", "assistant", 20 + i, json.dumps({"content": [part]})))
+        self.db.commit()
+        self.assertTrue(wake._has_inbox_send(self.db, "ses_lee"))
+        self.assertFalse(wake._has_inbox_send(self.db, "ses_lee", "PM-calidad"))
+        self.assertEqual(len(wake.reap_finished(self.root, self.db_path)), 1)
+
+    # Lo que terminó antes de RECENT_MS no se avisa como novedad (evita el aluvión del deploy).
+    def test_entrega_vieja_no_se_avisa(self):
+        with open(os.path.join(self.project, "epic-calidad", "STATUS.md"), "w", encoding="utf-8") as f:
+            f.write("| Ticket | Estado |\n| CAL-98 | reported |\n")
+        self.add_dev("ses_vieja", ticket="CAL-98", idle=int(time.time() * 1000) - wake.RECENT_MS - 60_000)
+        self.write_log("ses_vieja", ticket="CAL-98")
+        self.assertEqual(wake.reap_finished(self.root, self.db_path), [])
+        self.assertEqual(wake.reap_finished(self.root, self.db_path), [])  # y queda marcada
 
     # CAL-29 candado 3: barrido no avisa por sesiones fuera de ventana
     def test_barrido_no_avisa_fuera_ventana(self):
@@ -178,40 +209,22 @@ class Cal29VerificaDoneTest(unittest.TestCase):
             lines = [l.strip() for l in f if l.strip()]
         self.assertEqual(lines.count("ses_dedup"), 1)
 
-    # E1 M-70: filtro anti-timestamps en _commits_of — 1793725787505 no es sha
-    def test_commits_of_filtra_timestamp_13digitos(self):
-        # datos reales: session_message con git commit + timestamp 13 dígitos y sha abc1234
+    # E1 M-70, reescrito 2026-11-04: un sha sale solo de la salida de `git commit` ("[rama sha]"),
+    # nunca de números sueltos del JSON ni de la salida de `git log` (en SIM-102 daba 12 shas basura).
+    def test_commits_of_solo_lee_salida_de_git_commit(self):
         self.add_dev("ses_e1", ticket="CAL-29")
-        # mensaje assistant que contiene 'git commit' para que _commits_of lo escanee,
-        # con un sha real abc1234 y el timestamp decimal 1793725787505 juntos
-        data = json.dumps({
-            "content": [
-                {"type": "tool", "state": {"input": {"command": "git commit -m 'feat abc1234'"}}},
-            ],
-            "extra": "1793725787505 1793725787505 abc1234",
-        })
-        self.db.execute(
-            "insert into session_message values (?,?,?,?)",
-            ("ses_e1", "assistant", 6, data),
-        )
-        # también caso con timestamp como número suelto en el json (time_created estilo)
-        data2 = json.dumps({"content": [{"type": "tool", "state": {"input": {"command": "git commit"}} }], "ts": 1793725787505, "note": "sha abc1234 y ts 1793725787505"})
-        self.db.execute(
-            "insert into session_message values (?,?,?,?)",
-            ("ses_e1", "assistant", 7, data2),
-        )
+        partes = [
+            {"type": "tool", "state": {"input": {"command": "git commit --only a.py -m 'x'"},
+             "content": [{"type": "text", "text": "[main abc1234] x\n 1 file changed"}]}},
+            {"type": "tool", "state": {"input": {"command": "git log --oneline -3"},
+             "content": [{"type": "text", "text": "deadbee otro\nfeedfac otro"}]}},
+            {"type": "tool", "state": {"input": {"command": "git -C /repo commit -m y"},
+             "content": [{"type": "text", "text": "[epic/x 9f8e7d6c] y"}]}},
+        ]
+        self.db.execute("insert into session_message values (?,?,?,?)",
+                        ("ses_e1", "assistant", 6, json.dumps({"content": partes, "ts": 1793725787505})))
         self.db.commit()
-        shas = wake._commits_of(self.db, "ses_e1")
-        self.assertIn("abc1234", [s.lower() for s in shas], "debe devolver sha real abc1234")
-        self.assertNotIn("1793725787505", shas, "no debe devolver timestamp 13 dígitos")
-        # verifica regex explícita existe
-        self.assertTrue(hasattr(wake, "_TIMESTAMP_13_RE"), "wake debe exponer regex _TIMESTAMP_13_RE")
-        self.assertTrue(wake._TIMESTAMP_13_RE.match("1793725787505"))
-        self.assertIsNone(wake._TIMESTAMP_13_RE.match("abc1234"))
-        # sha hex largo real no se filtra (40 hex)
-        self.assertIsNone(wake._TIMESTAMP_13_RE.match("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"))
-        # verifica con dato que parece timestamp pero es sha con letras no se filtra
-        self.assertIsNone(wake._TIMESTAMP_13_RE.match("179372578750a"))
+        self.assertEqual(wake._commits_of(self.db, "ses_e1"), ["abc1234", "9f8e7d6c"])
 
     # E2 M-41/M-42: carrera dedup .aviso-dev — dos reap_finished concurrentes misma sid
     def test_carrera_dedup_concurrente_m41_m42(self):
