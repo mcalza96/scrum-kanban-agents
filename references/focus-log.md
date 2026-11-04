@@ -60,9 +60,7 @@ directive (`D-<n>`) with the human's words quoted:
   `scripts/focus.py claim D --by PM-x` (or `claim SIM`, or `claim migracion --files
   'db/migrations/*.sql'`), which hands out the next free number under a lock and records it in
   `focus/.ids`. Picking "max + 1" by hand let two PMs take the same id four times in one day.
-- **Lint after writing.** `scripts/focus.py check focus/` flags an anchor too long to read whole,
-  directive ids that repeat or point nowhere, zero or several objectives in force, and active lines
-  with no new directive in `--stale-days`. Exit 0 means nothing was flagged.
+- **Lint after writing.** `scripts/focus.py check focus/` flags an anchor too long to read whole (mide `focus/PROJECT.md` y `focus/lines/*.md` —o `focus/**/*.md` según repo— y retorna `1` si `lines>60` o `bytes>12000`, con mensaje que indica archivo y tamaño), directive ids that repeat or point nowhere, zero or several objectives in force, and active lines with no new directive in `--stale-days`. Exit 0 means nothing was flagged, `1` si el ancla supera `60` líneas o `12000` bytes (límite anchor: `60` líneas o `12 KB`, `--max-anchor-lines`/`--max-anchor-bytes`).
 - **Check before acting.** If the next step doesn't serve the objective, or breaks a directive in
   force, the PM says so and asks instead of doing it.
 
@@ -94,7 +92,7 @@ instead:
   («run the suite once»). When unsure, it stays `in force`: a heavy anchor costs tokens, a hidden
   rule costs drift.
 - If what remains still doesn't fit (more than 60 lines or 12 KB, `--max-anchor-lines`,
-  `--max-anchor-bytes`), the work has too many open fronts: rule 7 applies.
+  `--max-anchor-bytes`), `scripts/focus.py check` retorna `1` con `FLAG <archivo>: anchor is <n> lines/bytes (max ...)`. El trabajo tiene demasiados frentes abiertos: rule 7 applies.
 
 Measured in one project, 2026-11-02: one line's anchor held 67 lines but 29 KB, because one row had
 grown to 17 KB with 47 decisions appended to its cell; 13 of them were executed one-shot
