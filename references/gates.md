@@ -50,6 +50,29 @@ reported. Commits the PM makes itself after the dev finishes are only caught by 
 run. Why: in one project, 13 of the 21 commits that touched tests on one day removed assertions,
 several under a message saying the gates were intact, and nobody looked.
 
+## A red trunk: the ratchet
+
+«Tests pass with exit 0» never holds once the trunk is red, and then every PM invents its own
+close: «my lane is green», «the failures are someone else's». Each red makes the next one
+invisible. In the project this skill comes from, the trunk carried 9 to 17 failing tests for days,
+and tickets closed on top of them.
+
+The fix is a ratchet, enforced by the gate and not by discussion:
+
+1. A file versioned with the code (e.g. `scripts/fallos-conocidos.txt`) names the tests that fail
+   today, one per line. The gate reads it **from the commit under test**.
+2. `scripts/trinquete.py suite <log> <list>` rejects the commit if a test fails that is not in the
+   list, if a listed test no longer fails (whoever fixes it removes it in the same commit, so it
+   cannot come back), or if the suite never reached its summary.
+3. `scripts/trinquete.py list <list> <parent's list>` rejects a commit that adds a name. Run it
+   **before** any cache answers: the parent is not part of the code, so a cache keyed on the tree
+   cannot see it. Bind only parents that already had the ratchet, so the list can be born.
+4. The PO splits the list among the owners. An empty list is the end state, and then the ratchet
+   is plain exit 0.
+
+Seed the list from a run on a clean checkout of HEAD, never from the working tree. Test the
+ratchet by mutation: removing any of the three rules must break its lock.
+
 ## Iteration cases versus validation cases
 
 - **Iteration cases** are the examples the dev works against. The dev may see them and debug them.

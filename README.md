@@ -42,6 +42,10 @@ codebase, and it records what was needed to trust their work.
   main checkout, where they would wipe another agent's uncommitted work. Devs commit with
   `git commit --only <files>` or work in their own worktree. It also refuses `sleep` loops and
   long sleeps, and killing processes the session did not start.
+- **A red trunk does not hide new reds.** `scripts/trinquete.py` lets the gate accept only the
+  failures named in a versioned list, demands removing the ones that get fixed, and refuses a
+  commit that adds a name. A `pre-push` hook (`scripts/hooks/pre-push`) refuses a commit that
+  builds only with uncommitted changes from the shared tree.
 - **Templates.** `STATUS.md`, tickets, reviews, prompts, a closing plan, and the focus file.
 
 It is agnostic: it works with any coding agent (Claude Code, opencode, Codex, ...) and any board,
@@ -70,6 +74,7 @@ to skip. `<skill>` is where you cloned it; `inbox/` stays out of git (it is live
 | Runtime | What to install |
 |---|---|
 | Claude Code | In `.claude/settings.json`: `python3 <skill>/scripts/focus.py hook "$CLAUDE_PROJECT_DIR/focus"` on `SessionStart`, and `python3 <skill>/scripts/inbox.py hook "$CLAUDE_PROJECT_DIR/inbox"` on `UserPromptSubmit` |
+| git (any runtime) | `git config core.hooksPath <skill>/scripts/hooks` and `git config prepush.cmd '<your build>'` (default `npx tsc --noEmit -p .`). The gate calls `scripts/trinquete.py` (references/gates.md) |
 | opencode | Copy `adapters/opencode/inbox.js` and `guard.js` to `<project>/.opencode/plugin/`. A timer (launchd, cron) runs `adapters/opencode/wake.py --sweep <project>/inbox` every 15 minutes. After every `opencode upgrade`, run `scripts/opencode_inbox_smoke.sh` |
 | Codex | `adapters/codex.md` |
 | Anything else | The PM's system prompt runs `inbox.py pending inbox/` at the start of every turn |
@@ -95,7 +100,7 @@ Tests: `python3 -m unittest discover -s scripts/tests`.
 SKILL.md          the skill: roles, lifecycle, the twelve rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
 templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
-scripts/          check_report.py, candados.py, focus.py, inbox.py, archivar.py, stale_worktrees.py, tests
+scripts/          check_report.py, candados.py, trinquete.py, focus.py, inbox.py, archivar.py, stale_worktrees.py, hooks/pre-push, tests
 adapters/         opencode (inbox, wake, lanzar, guard, control.sh), codex, Hermes kanban
 ```
 

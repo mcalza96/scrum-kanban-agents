@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.9.0
+version: 0.10.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -147,7 +147,9 @@ pending → in progress → reported → closed
 A ticket is not closed without all of these. The PM checks them one by one, not from memory:
 
 1. The artifact exists at the declared path, and the PM opened it.
-2. The tests pass with exit 0. The exact command is in the report, and the PM re-ran it.
+2. The tests pass with exit 0, or, on a trunk that is already red, exactly the listed known
+   failures fail (`scripts/trinquete.py`, references/gates.md «A red trunk»). «The failures are
+   someone else's» is never a close. The exact command is in the report, and the PM re-ran it.
 3. Every pasted output matches the PM's re-run (rule 2).
 4. The gates pass, and none of them changed without rule 4: `scripts/candados.py <repo> <shas>`
    over the ticket's commits lists no removed assertion, or each one is justified in the report.
@@ -222,6 +224,8 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
 | `scripts/candados.py` | Lists the assertions a set of commits removed from test files (rule 4) |
+| `scripts/trinquete.py` | Ratchet for a red trunk: only the known failures may fail, and their list only shrinks (DoD 2) |
+| `scripts/hooks/pre-push` | Refuses a push whose commit does not build in a clean worktree |
 | `adapters/opencode/control.sh` | The auditor's read-only check of the last N minutes (references/lessons.md, «Supervision») |
 | `scripts/archivar.py` | Moves read mail, old wake lines, closed STATUS rows and done directives to archive files (run by the sweep) |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |

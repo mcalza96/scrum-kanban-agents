@@ -70,6 +70,12 @@ command, and an output. «It was slow» is not a lesson.
   - A dropped stash is not gone: `git fsck --no-reflog --unreachable` lists it as a dangling
     commit. Recover file by file with `git show <sha>:<path> > <path>` (`<sha>^3` holds the
     untracked files), comparing with the current file first. Never `stash pop` it over a live tree.
+- **«It builds» in a shared checkout means «it builds with everyone's uncommitted changes».** A
+  commit used a prop whose change stayed uncommitted; another left out a new file that was never
+  `git add`ed. Both were green in the tree, red in the commit, and the deploy broke while the
+  devs' launcher queue stalled behind a trunk that did not compile. A `pre-push` hook
+  (`scripts/hooks/pre-push`) builds each pushed commit in a throwaway worktree and refuses the
+  push otherwise; it remembers trees that passed, so a re-push costs nothing.
 - **Every worktree carries its own copy of the gate script.** An old copy skips the queue and the
   cache of the new one. The script's first act is to `exec` the copy of the main checkout
   (`git rev-parse --path-format=absolute --git-common-dir`).
