@@ -70,6 +70,8 @@ POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
 HOLD = {"PO": 15 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision, D-282)
 URGENT = re.compile(r"\s*\[(bloqueo|encargo|decisi[oó]n)\]", re.IGNORECASE)
+# M-83: si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro aunque sea aviso
+M_CITE_RE = re.compile(r"\bM-(\d+)\b")
 IDLE = 20 * 60
 STALE = 12 * 3600
 # CAL-29: ventana para "terminó sin entregar" (evita inundación M-260–M-617)
@@ -146,6 +148,22 @@ def held(msgs: list, hold: float, now: datetime.datetime) -> float:
     """Seconds left before msgs must wake: 0 when one is urgent or the oldest waited hold."""
     if not hold or any(URGENT.match(m.text) for m in msgs):
         return 0.0
+    # M-83: si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro
+    # aunque el tag sea [aviso]; no cambia cadencia de avisos rutinarios sin cita
+    # Caso M-723: [aviso] M-723 (respuesta a mi encargo M-82) quedó held 15 min por tag [aviso]
+    # Detecta cita con "encargo" + M-número, aunque el encargo citado no esté en esta misma lista
+    # (está en otro buzón del PO), y también el caso intra-buzón.
+    pending_encargo_ids = {m.id for m in msgs if URGENT.match(m.text)}
+    for m in msgs:
+        if URGENT.match(m.text):
+            continue
+        # intra-buzón: cita a un [encargo] presente en este lote
+        for cited in M_CITE_RE.findall(m.text):
+            if f"M-{cited}" in pending_encargo_ids:
+                return 0.0
+        # cross-buzón: [aviso] que menciona encargo + M-número (ej. "respuesta a mi encargo M-82")
+        if M_CITE_RE.search(m.text) and re.search(r"encargo", m.text, re.IGNORECASE):
+            return 0.0
     ages = [inbox.age_hours(m.sent, now) for m in msgs]
     return max(0.0, hold - max((a or 0.0) * 3600 for a in ages))
 

@@ -171,6 +171,32 @@ class WakeTest(unittest.TestCase):
         self.assertIsNotNone(wake.URGENT.match("[decisión] haz esto"))
         # Si se quita decisi[oó]n de URGENT, estos held serían >0 y el test falla
 
+    def test_aviso_citing_pending_encargo_wakes_at_once_M83(self):
+        # M-83: [aviso] que cita M-número de un [encargo] pendiente despierta al tiro aunque sea aviso
+        # M-723 (respuesta a mi encargo M-82) quedó held 15 min por tag [aviso]
+        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
+        def msg(mid, text, minute):
+            sent = now.replace(minute=minute).strftime(inbox.FMT)
+            return inbox.Message(mid, "PO", sent, text, "unread")
+        # caso normal: aviso sin cita sigue held (5 min de 15)
+        self.assertAlmostEqual(wake.held([msg("M-82", "[encargo] M-82 gate paralelo", 19), msg("M-83", "[aviso] rutina sin cita", 19)], 900, now), 0)  # encargo presente -> ya 0 por URGENT
+        # solo aviso con cita a encargo pendiente debe despertar aunque no haya otro urgent
+        # simulamos dos mensajes: encargo M-82 y aviso M-723 que cita M-82
+        pending = msg("M-82", "[encargo] M-82 gate paralelo", 19)
+        citing = msg("M-723", "[aviso] M-723 (respuesta a mi encargo M-82) inventario listo", 19)
+        # sin el parche M-83, held([aviso citando]) sería 600 (held), con parche 0
+        self.assertEqual(wake.held([pending, citing], 900, now), 0)
+        self.assertEqual(wake.held([citing, pending], 900, now), 0)
+        # cross-buzón: solo el aviso citando encargo + M debe despertar aunque el encargo no esté en esta lista
+        solo_citing = msg("M-723", "[aviso] M-723 (respuesta a mi encargo M-82) inventario listo", 19)
+        self.assertEqual(wake.held([solo_citing], 900, now), 0)
+        # aviso que cita M inexistente sigue held (1 min de 15, queda 840)
+        routine = msg("M-99", "[aviso] M-99 rutina normal sin cita relevante", 19)
+        self.assertAlmostEqual(wake.held([routine], 900, now), 840)
+        # aviso que cita M pero sin palabra encargo sigue held (rutina)
+        self.assertAlmostEqual(wake.held([msg("M-10", "[aviso] M-10 referencia a M-82 sin palabra clave", 19)], 900, now), 840)
+        self.assertIsNotNone(wake.M_CITE_RE.search("M-82"))
+
     def test_the_po_holds_avisos_until_a_bloqueo_arrives(self):
         self.session("ses_po", f"inbox.py read {self.root} PO", 1)
         inbox.send(self.root, "PO", "PM-ui", "SIM-1 cerrado")
