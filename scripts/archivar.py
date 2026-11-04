@@ -116,18 +116,28 @@ def wakes(root: str, now: datetime.datetime, dry: bool) -> list[str]:
 
 def statuses(repo: str, dry: bool) -> list[str]:
     done = []
-    for path in sorted(glob.glob(os.path.join(repo, "epic-*", "STATUS.md"))):
+    for path in sorted(glob.glob(os.path.join(repo, "epic-*", "STATUS*.md"))):
+        if path.endswith("-archivo.md"):
+            continue
         with open(path, encoding="utf-8") as f:
             text = f.read()
         lines = text.splitlines()
         head = next((i for i, l in enumerate(lines)
-                     if ROW.match(l) and "State" in cells(l) and i + 1 < len(lines)
+                     if ROW.match(l) and ("State" in cells(l) or "Estado" in cells(l)) and i + 1 < len(lines)
                      and lines[i + 1].startswith("|---")), None)
         if head is None:
             continue
         cols = cells(lines[head])
-        state, upd = cols.index("State"), (cols.index("Updated") if "Updated" in cols else None)
+        # admite State y Estado (M-77, CALIDAD usa Estado)
+        state_name = "State" if "State" in cols else ("Estado" if "Estado" in cols else None)
+        if state_name is None:
+            continue
+        state, upd = cols.index(state_name), (cols.index("Updated") if "Updated" in cols else (cols.index("Actualizado") if "Actualizado" in cols else None))
         rows = [(i, cells(l)) for i, l in enumerate(lines) if i > head + 1 and ROW.match(l)]
+        # avisa filas mal formadas sin moverlas (longitud distinta, M-77)
+        for i, c in rows:
+            if len(c) != len(cols):
+                print(f"warn: {os.path.relpath(path, repo)}:{i+1} fila mal formada len {len(c)} != {len(cols)}: {lines[i][:80]}", file=sys.stderr)
         closed = [(i, c) for i, c in rows if len(c) == len(cols) and c[state].startswith("closed")]
         closed.sort(key=lambda r: (r[1][upd] if upd is not None else "", r[0]))
         moving = sorted(i for i, _ in closed[:max(0, len(closed) - KEEP_CLOSED)])
@@ -148,6 +158,8 @@ def statuses(repo: str, dry: bool) -> list[str]:
 def directives(repo: str, dry: bool) -> list[str]:
     done = []
     for path in sorted(glob.glob(os.path.join(repo, "focus", "**", "*.md"), recursive=True)):
+        if path.endswith("-archivo.md"):
+            continue
         with open(path, encoding="utf-8") as f:
             lines = f.read().splitlines()
         end = next((i for i, l in enumerate(lines) if re.match(r"^##\s+Archived\s*$", l)), None)
