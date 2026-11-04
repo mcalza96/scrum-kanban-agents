@@ -78,7 +78,9 @@ command, and an output. «It was slow» is not a lesson.
 
 ## Supervision
 
-- **When the PO drowns, add a delivery director, not a second PO.** On 2026-11-03 the PO took about
+- **When the PO drowns, add a delivery director, not a second PO.** (Superseded on 2026-11-04: the
+  director drowned in progress reports too, and became an auditor without a mailbox, measuring on
+  demand. What it measures stays the same.) On 2026-11-03 the PO took about
   one turn a minute, mostly status echoes from PMs. The human put one agent over the PO:
   - it reads the runtime's own records every 10 minutes (`adapters/opencode/control.sh`), never
     the agents' accounts: duplicate devs on one ticket, forbidden git or `kill` commands, ungated

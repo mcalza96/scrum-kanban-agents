@@ -1,7 +1,7 @@
 ---
 name: scrum-kanban-agents
 description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.8.1
+version: 0.9.0
 license: MIT
 tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
@@ -30,7 +30,7 @@ human decision at every step.
 | Role | Who | Does | Does NOT |
 |---|---|---|---|
 | Stakeholder | The human | Prioritizes, decides, accepts | Edit the board rows of others |
-| Delivery director | One agent session, optional, over the PO when the PO is overloaded | Watches the runtime records every few minutes, alerts the PO with evidence, records the human's decisions as tickets | Prioritize, assign, launch devs, kill processes, edit code |
+| Auditor | One agent session, optional, outside the flow and without a mailbox | Measures the runtime's records when the human asks (or every few hours) and reports to the human with evidence | Receive progress reports, prioritize, assign, launch devs, kill processes, edit code |
 | PM | One agent session (or the human) | Writes tickets, verifies reports, closes or returns | Implement what it reviews |
 | Dev | A fresh agent session for **one** task (one-shot) | Implements, runs tests, writes the report and its logbook | Take a second task, decide scope, close its own ticket |
 | Gate | Tests, scripts, hidden evaluation sets | Mechanical verdict | Get changed by the dev it judges |
@@ -42,9 +42,10 @@ recommends with evidence and does not decide for the human.
 
 - **Board mode**: a kanban tool spawns devs from cards. Read `references/board-mode.md`. The most
   important rule is that **assigning a card is starting it**.
-- **File mode**: tickets are `.md` files, the board is `STATUS.md`, and the human launches each dev
-  session with a prompt. Read `references/file-mode.md`. Use it when the human launches agents by
-  hand, or when tests and evaluation sets matter more than automation.
+- **File mode**: tickets are `.md` files, the board is `STATUS.md`, and each dev session starts
+  from a `TO:` prompt. The human launches it, or the PM queues it for the runtime's launcher
+  (`inbox.py lanzar`, opencode adapter: at most 1 dev per PM and 4 per machine). Read
+  `references/file-mode.md`. Use it when tests and evaluation sets matter more than automation.
 
 Both modes share everything below.
 
@@ -63,7 +64,7 @@ pending → in progress → reported → closed
 - **One session, one task.** A session ends when its task's report is written. The next task,
   even for the same agent, starts a new session (rule 8).
 
-## The eleven rules
+## The twelve rules
 
 1. **Evidence is literal.** Every claim in a report comes with the exact `$ command` and its
    output, pasted as is: no `...`, no hand-written diffs, no hand-written `ls -l`, no estimated
@@ -93,7 +94,7 @@ pending → in progress → reported → closed
    one return. It writes the report, sets its row to `reported`, and stops. It does not accept a
    second task, a follow-up question, or a «while you're at it».
    - Questions for the dev go into the next task's prompt, in a new session.
-   - The PM checks this in the trace: a session with more than one prompt is a process failure,
+   - The PM checks this in the runtime's records: a session with more than one prompt is a process failure,
      and it is recorded.
    - Why: in the project this skill comes from, 7 of 18 sessions on one day took several tasks. The
      longest one took 7 prompts and ran for 3.5 hours with 58 test runs. A prompt meant for one
@@ -101,9 +102,9 @@ pending → in progress → reported → closed
      verify.
 9. **Every task is traced.** The dev ends its report with a **logbook** of at most 10 lines,
    without times: the phases it followed, what it repeated and why, where it got stuck, and what
-   would have saved time. The PM gets the numbers from the agent runtime's own records, never from
-   the agent: duration, steps, test runs, re-reads, failures, tokens, and cost. The PM keeps them in
-   a trace database with each verdict. Time informs the PM. It is never a target for the devs. Read
+   would have saved time. The PM gets the numbers from the agent runtime's own store, read-only,
+   never from the agent: prompts (one-shot), duration, test runs, re-reads, failures. There is no
+   second database to keep in sync. Time informs the PM. It is never a target for the devs. Read
    `references/traceability.md`.
 10. **The objective survives the context.** Focus files at two levels (`focus/PROJECT.md`, and
     `focus/lines/<line>.md` for each PM's line of work) keep an anchor: the objective in the PO's
@@ -129,7 +130,15 @@ pending → in progress → reported → closed
     an answer to go on (`scripts/inbox.py send`). A hook puts the unread messages in front of every
     PM turn; the PM reads them first and acks them after acting, and `inbox.py check` flags the
     ones left unread. A message to an idle PM wakes it (at most 40 times per PM per hour; past that
-    it waits for the human). Read `references/inbox.md`.
+    it waits for the human). The PM never waits on a dev: when a dev it launched finishes without
+    writing to it, the runtime tells the PM within a minute. `inbox/` is live state, not history:
+    it stays out of git. Read `references/inbox.md`.
+12. **The shared checkout is nobody's to clean.** Several agents work in the same checkout, tree,
+    and index. An agent commits only its own files (`git add <new file>`, `git commit --only
+    <files>`) and never stashes, checks out, restores, resets, cleans, `add -A`s, `commit -a`s, or
+    amends there; it needs a clean tree, it uses its own worktree. The opencode adapter enforces it
+    (`guard.js`). Why: in the project this skill comes from, 20 sessions stashed in the shared
+    checkout in three days, and one wiped every mailbox.
 
 ## Definition of Done
 
@@ -143,8 +152,8 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
 6. The report is a pointer plus a short summary. The payload stays in the repo.
 7. A verifier other than the dev approved the work. If the criterion is fully mechanical, a
    deterministic gate can replace the verifier.
-8. The report ends with the logbook, the session was one-shot, and the PM ingested its trace and
-   recorded the verdict.
+8. The report ends with the logbook, the runtime's records show the session was one-shot, and the
+   verdict (with the cause of any return) is recorded in the review and the ticket's row.
 9. Whatever the ticket created outside the repo's tracked files is gone: worktrees, dev servers,
    ports, per-ticket build dirs (`.next-<ticket>`). Anything left alive on purpose is named in the
    report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`). The opencode sweep (`wake.py --sweep`) reaps what is left after a day.
@@ -172,7 +181,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | Plan attack | Four blind attackers (figures, feasibility, logic and gates, scope) attack the plan; the PM re-verifies each finding, writes v2, and runs a second round if the design changed (`references/plan-attack.md`) | After planning, before any card is assigned, **only for complex work** |
 | Daily | Board plus the dev's heartbeat or session log, `inbox.py check`, and `stale_worktrees.py` | When reporting to the human |
 | Review | PM verification and verdict | Each report |
-| Retro | Read the trace views (`v_outliers`, `v_return_cause`, `v_one_shot`) and add or remove one concrete rule | End of a phase |
+| Retro | Count returns by cause from the reviews, check one-shot and outliers in the runtime's records, and add or remove one concrete rule | End of a phase |
 
 ## Metrics
 
@@ -185,7 +194,8 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 - **Timeout waste**: runs killed by a time limit. It is the most expensive way to fail.
 - **One-shot rate**: sessions with exactly one prompt, out of all dev sessions. The target is 100%.
 - **Cost of returns**: minutes spent on returns compared with minutes spent on the original work,
-  per ticket (`v_ticket`). A return that costs more than the work points at the report format.
+  per ticket, from the runtime's records. A return that costs more than the work points at the
+  report format.
 - **Gate drift**: for each gate, its precision and recall on the hidden set, recorded with the
   code hash. Every gate decision is compared against that baseline.
 
@@ -203,16 +213,20 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/parent-focus.md` | The PM's own todo, ticket cap, children never mutate the board |
 | `references/focus-log.md` | Focus files per project and line: objectives and directives that survive compaction |
 | `references/inbox.md` | One mailbox per PM: when to write, and how reading is enforced and proven |
-| `references/traceability.md` | One-shot sessions, logbook, trace database, what to look at |
+| `references/traceability.md` | One-shot sessions, logbook, measuring from the runtime's records |
 | `references/plan-attack.md` | Blind adversarial review of a complex plan before execution |
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
-| `adapters/opencode/control.sh` | The delivery director's read-only check of the last N minutes (references/lessons.md, «Supervision») |
+| `adapters/opencode/control.sh` | The auditor's read-only check of the last N minutes (references/lessons.md, «Supervision») |
 | `scripts/archivar.py` | Moves read mail, old wake lines, closed STATUS rows and done directives to archive files (run by the sweep) |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
 | `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind (removable, dirty, ahead, in use); `--reap` removes the stale ones, saving their work as `conserva/wt-<name>`, and stops idle agent postgres |
-| `scripts/trace/` | `tracer.py`: ingests agent sessions into a trace database (SQLite) with views |
-| `adapters/` | Tool-specific notes and helpers: `opencode.md`, `opencode/inbox.js`, `opencode/wake.py`, `hermes-kanban/` |
+| `adapters/opencode/inbox.js` | Plugin: unread mail in every PM turn; wakes idle PMs on new mail; runs the launcher and the dev-finished check every minute |
+| `adapters/opencode/wake.py` | Wakes a PM for its mail (`[bloqueo]`/`[encargo]` at once, `[aviso]` held); `--reap` tells a PM its dev finished; `--sweep` (launchd, 15 min) nudges idle PMs, reaps stale worktrees, runs `archivar.py` |
+| `adapters/opencode/lanzar.py` | The launcher: starts queued dev sessions with `opencode run`, 1 per PM and 4 per machine, and tells the PM when one fails |
+| `adapters/opencode/guard.js` | Plugin: blocks sleep loops, `kill` of processes the session did not start, and git that touches others' work in the shared checkout (rule 12) |
+| `adapters/codex/`, `adapters/codex.md` | Waking a Codex session from its mailbox |
+| `adapters/hermes-kanban/` | Board mode with Hermes kanban |

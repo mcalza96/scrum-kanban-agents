@@ -1,7 +1,8 @@
-// CAL-26 — Ningún agente duerme en un loop ni mata procesos que no lanzó (D-278)
+// Ningún agente duerme en un loop, mata procesos que no lanzó ni pisa el árbol compartido.
 // Plugin opencode v2: revisa cada shell antes de correr.
 // Bloquea: sleep en loop (while/until/for con sleep) o sleep N>UMBRAL,
-// y kill/pkill/killall sobre PIDs no descendientes (pkill/killall siempre).
+// kill/pkill/killall sobre PIDs no descendientes (pkill/killall siempre),
+// y git que toca archivos o índice ajenos en el checkout principal (isGitBlocked).
 // Cada rechazo deja línea en inbox/.bloqueos.log (fecha, sesión, comando recortado, regla).
 // Errores del plugin dejan pasar el comando y lo anotan. Umbral configurable.
 import { execSync } from "node:child_process";
@@ -144,6 +145,70 @@ function isDescendantDouble(pid, launchedSet, tree1, tree2) {
   return false;
 }
 
+// --- git que pisa trabajo ajeno en el checkout compartido ---
+// En el checkout principal trabajan varios agentes a la vez sobre el mismo árbol e índice. Estos
+// comandos tocan archivos o el índice de todos: 20 sesiones hicieron stash y 23 checkout/restore en
+// 3 días (2026-11-01..04), y uno borró los buzones. En un worktree propio se permiten.
+const GIT_RULES = [
+  [/^stash\b(?!\s+(list|show)\b)/, "git-stash"],
+  [/^(checkout|switch|restore)\b/, "git-checkout"],
+  [/^reset\b.*--(hard|merge|keep)\b/, "git-reset-hard"],
+  [/^clean\b.*\s-[a-zA-Z]*f/, "git-clean"],
+  [/^add\b.*(\s-A\b|\s--all\b|\s\.(\s|$)|\s-u\b|\s--update\b)/, "git-add-todo"],
+  [/^commit\b.*(\s-[a-zA-Z]*a[a-zA-Z]*\b|\s--all\b|\s--amend\b)/, "git-commit-todo"],
+];
+
+function stripQuotes(s) {
+  return s.replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, '""').replace(/'[^'\\]*(?:\\.[^'\\]*)*'/g, "''");
+}
+
+function gitPaths(dir) {
+  return execSync(
+    `git -C ${JSON.stringify(dir)} rev-parse --path-format=absolute --show-toplevel --git-common-dir`,
+    { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim().split("\n");
+}
+
+// El árbol compartido es el checkout principal del repo del proyecto: un worktree propio o un repo
+// de prueba en /tmp no lo son. Devuelve una función dir -> bool, con caché por directorio.
+export function sharedCheckout(projectDir) {
+  let main; // se calcula solo cuando una regla de git calza: el resto de los comandos no paga git
+  const memo = new Map();
+  return (dir) => {
+    if (main === undefined) {
+      try { main = dirname(gitPaths(projectDir)[1]); } catch { main = null; }
+    }
+    if (!main) return false;
+    if (!memo.has(dir)) {
+      let top = null;
+      try { top = gitPaths(dir)[0]; } catch {}
+      memo.set(dir, top === main);
+    }
+    return memo.get(dir);
+  };
+}
+
+// Devuelve { blocked, regla, detalle }. cwd es el directorio de la sesión; `cd X` y `git -C X`
+// mueven el destino. isShared dice si un directorio es el árbol compartido (sharedCheckout).
+export function isGitBlocked(cmd, cwd, isShared) {
+  let dir = cwd;
+  for (const seg of stripQuotes(cmd.split("<<")[0]).split(/&&|\|\||[;\n|&]/)) {
+    const s = seg.trim();
+    const cd = s.match(/^cd\s+(\S+)/);
+    if (cd) {
+      const t = cd[1].replace(/^~(?=\/|$)/, process.env.HOME || "~");
+      dir = t.startsWith("/") ? t : join(dir, t);
+      continue;
+    }
+    const g = s.match(/^(?:\S+=\S+\s+)*git((?:\s+-[Cc]\s+\S+)*)\s+(.*)$/);
+    if (!g) continue;
+    const c = g[1].match(/-C\s+(\S+)/);
+    const target = c ? (c[1].startsWith("/") ? c[1] : join(dir, c[1])) : dir;
+    const rule = GIT_RULES.find(([re]) => re.test(g[2]));
+    if (rule && isShared(target)) return { blocked: true, regla: rule[1], detalle: `git ${g[2].slice(0, 40)}` };
+  }
+  return { blocked: false };
+}
+
 // memoria de PIDs lanzados por sesión (via tool.execute.after)
 const launchedBySession = new Map(); // sessionID -> Set(pid)
 
@@ -169,6 +234,21 @@ export default {
             `No se permite sleep en loop (while/until/for con sleep) ni sleep N con N>${SLEEP_UMBRAL} (umbral ${SLEEP_UMBRAL}s configurable). ` +
             `Alternativa: corre el comando en segundo plano (usa & , background: true o timeout acotado) y lee su salida al terminar, ` +
             `o usa \`bash scripts/suite.sh --resultado\` si ya existe (CAL-21 C). Motivo: sleep en loop bloquea el turno y desperdicia 1,7 h-agente (D-278).`
+          );
+        }
+
+        // --- git en el checkout compartido ---
+        const projectDir = (ctx.location && ctx.location.directory) || process.cwd();
+        const gitRes = isGitBlocked(cmd, projectDir, sharedCheckout(projectDir));
+        if (gitRes.blocked) {
+          logBloqueo(inboxRoot, sessionID, cmd, gitRes.regla, gitRes.detalle);
+          throw new Error(
+            `bloqueado: ${gitRes.regla} (${gitRes.detalle}) en el checkout compartido. Otros agentes tienen ` +
+            `cambios sin commitear en este mismo árbol e índice; stash, checkout, restore, reset --hard, clean, ` +
+            `add -A y commit -a/--amend los pisan. Qué hacer: commitea solo lo tuyo con ` +
+            `\`git add <archivo nuevo>\` y \`git commit --only <tus archivos> -m ...\`; deja los cambios ajenos ` +
+            `como están; para leer otra versión usa \`git show <sha>:<ruta>\`. Si necesitas un árbol limpio, ` +
+            `trabaja en un worktree propio (\`git worktree add\`), donde esto sí se permite.`
           );
         }
 

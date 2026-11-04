@@ -1,0 +1,59 @@
+"""Candado de guard.js: git que pisa trabajo ajeno se bloquea en el checkout principal y se
+permite en un worktree propio. Corre la función pura isGitBlocked con node (sin opencode)."""
+import json
+import os
+import shutil
+import subprocess
+import unittest
+
+GUARD = os.path.join(os.path.dirname(__file__), "../../adapters/opencode/guard.js")
+
+CASES = [
+    # (comando, cwd, bloquea, regla)
+    ("git stash -u", "/main", True, "git-stash"),
+    ("git stash list", "/main", False, None),
+    ("git checkout -- inbox/PO.md", "/main", True, "git-checkout"),
+    ("git restore --staged a.py", "/main", True, "git-checkout"),
+    ("git switch -c x", "/main", True, "git-checkout"),
+    ("git reset --hard HEAD", "/main", True, "git-reset-hard"),
+    ("git reset --soft HEAD~1", "/main", False, None),
+    ("git clean -fd", "/main", True, "git-clean"),
+    ("git add -A", "/main", True, "git-add-todo"),
+    ("git add .", "/main", True, "git-add-todo"),
+    ("git add .opencode/plugin/guard.js", "/main", False, None),
+    ("git commit -am x", "/main", True, "git-commit-todo"),
+    ("git commit --amend --no-edit", "/main", True, "git-commit-todo"),
+    ("git commit --only a.py -m 'no uses git stash -a'", "/main", False, None),
+    ("git commit --only a.py --allow-empty -m x", "/main", False, None),
+    ("npm test && git -C /main stash", "/wt", True, "git-stash"),
+    ("cd /main && git checkout .", "/wt", True, "git-checkout"),
+    # en un worktree propio, todo se permite
+    ("git stash && git checkout -b y && git reset --hard", "/wt", False, None),
+    ("cd /main && cd ../wt && git stash", "/x", False, None),
+    # mencionarlo no es correrlo
+    ("echo 'git stash'", "/main", False, None),
+    ("cat <<EOF\ngit reset --hard\nEOF", "/main", False, None),
+]
+
+
+@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+class GuardGitTest(unittest.TestCase):
+    def test_reglas_de_git(self):
+        script = (
+            f"const g = await import({json.dumps(os.path.abspath(GUARD))});"
+            "const cases = JSON.parse(process.argv[1]);"
+            "const isShared = (d) => d === '/main';"
+            "console.log(JSON.stringify(cases.map(([c, cwd]) => g.isGitBlocked(c, cwd, isShared))));"
+        )
+        out = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(CASES)],
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        for (cmd, cwd, blocked, regla), res in zip(CASES, json.loads(out.stdout)):
+            with self.subTest(cmd=cmd, cwd=cwd):
+                self.assertEqual(res["blocked"], blocked, res)
+                if blocked:
+                    self.assertEqual(res["regla"], regla)
+
+
+if __name__ == "__main__":
+    unittest.main()

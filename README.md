@@ -17,9 +17,8 @@ codebase, and it records what was needed to trust their work.
 - **A checker.** `scripts/check_report.py` extracts every `$ command` block from a report, flags
   signs of hand editing, and with `--run` re-runs each command and diffs the output.
 - **Traceability.** Dev sessions are strictly one-shot (one task each), and each report ends with a
-  short logbook. `scripts/trace/tracer.py` measures every task from the agent runtime's own
-  records: time, steps, test runs, re-reads, failures, and cost. It keeps them in a SQLite
-  database with views, so you can see which tasks, tickets, and agents eat the time.
+  short logbook. The PM measures every task straight from the agent runtime's own store,
+  read-only: prompts, time, test runs, re-reads, and failures (one SQL query for opencode).
 - **Plan attack, for complex work only.** Before any card is assigned, four blind attackers attack
   the plan: figures, feasibility, logic and gates, and scope. The PM re-verifies each finding and
   attacks its own fixes in a second round. In the field, this found gates that could not fail and a
@@ -63,26 +62,16 @@ python3 scripts/check_report.py reports/T-07.md --run --cwd repo \
 
 `--run` executes commands that somebody else wrote. Read the listing first, and use `--only` to
 run a subset. Both tools use only the Python standard library. Tests:
-`python3 -m unittest discover -s scripts/tests` and `python3 -m unittest discover -s scripts/trace/tests`.
-
-## Trace agent sessions
-
-```bash
-T=scripts/trace/tracer.py; D=~/agent-traces/data     # keep the data in a PRIVATE repo
-python3 $T --data $D ingest --project myproj --since 2026-10-01     # reads opencode's store, read-only
-python3 $T --data $D event verdict --project myproj --ticket T-7 --round 0 --verdict returned --cause evidence
-python3 $T --data $D build
-python3 $T --data $D report --view v_outliers       # also v_ticket, v_agent, v_day, v_one_shot, v_return_cause
-```
+`python3 -m unittest discover -s scripts/tests`.
 
 ## Layout
 
 ```
-SKILL.md          the skill: roles, lifecycle, the eleven rules, DoD, metrics
+SKILL.md          the skill: roles, lifecycle, the twelve rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
 templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
-scripts/          check_report.py, focus.py, trace/ (tracer.py, schema.sql, sources/), tests
-adapters/         opencode, Hermes kanban
+scripts/          check_report.py, focus.py, inbox.py, archivar.py, stale_worktrees.py, tests
+adapters/         opencode (inbox, wake, lanzar, guard), codex, Hermes kanban
 ```
 
 ## Contributing

@@ -40,10 +40,37 @@ With these you can check three things:
 
 The schema may change between versions. Check it with `.schema part` before you rely on it.
 
-## Tracing
+## Measuring a session
 
-`scripts/trace/tracer.py ingest --source opencode` reads the same tables, read-only, and builds the
-trace described in `references/traceability.md`.
+The numbers of `references/traceability.md` come straight from opencode's store, read-only. One
+query per dev session (`:suite` is a piece of the suite command, e.g. `verificar-commit`):
+
+```bash
+sqlite3 -readonly -header -column -cmd ".parameter set :s 'ses_...'" \
+  -cmd ".parameter set :suite 'verificar-commit'" ~/.local/share/opencode/opencode.db < medir.sql
+```
+
+```sql
+with tools as (
+  select json_extract(p.value, '$.name') as name,
+         json_extract(p.value, '$.state.status') as status,
+         coalesce(json_extract(p.value, '$.state.input.command'),
+                  json_extract(p.value, '$.state.input.filePath')) as arg
+  from session_message m, json_each(m.data, '$.content') p
+  where m.session_id = :s and m.type = 'assistant' and json_extract(p.value, '$.type') = 'tool')
+select
+  (select count(*) from session_message where session_id = :s and type = 'user') as prompts,
+  (select round((time_idle - time_created) / 60000.0, 1) from session_v2 where id = :s) as minutes,
+  (select count(*) from tools where name = 'shell' and arg like '%' || :suite || '%') as suite_runs,
+  (select count(*) - count(distinct arg) from tools where name = 'read') as rereads,
+  (select count(*) from tools where status = 'error') as failed,
+  (select count(*) from tools where name = 'shell' and arg like '%inbox.py send%') as sends;
+```
+
+`prompts` above 1 means the session was not one-shot. `sends` counts every `inbox.py send`; to see
+whom it wrote, list the shell calls (`select arg from tools where name = 'shell'`). Read the output
+of a call from `$.state.content`. Tested on opencode 2.2.5 (2026-11-04): on SIM-102 it gave
+`prompts 3, minutes 28.7, suite_runs 6`.
 
 ## Pitfalls
 

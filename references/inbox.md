@@ -8,6 +8,9 @@ nothing shows whether the other PM read it.
 ## The mailbox
 
 - One file per PM: `inbox/<PM>.md`, named like the `TO:` of that PM's prompts (`PM-ui`, `PM-ui-2`).
+- **`inbox/` is live state, not history: put it in `.gitignore`.** Versioned, the mailboxes were
+  always dirty, so devs saw «someone else's changes» and stashed them, and a `reset` or `checkout`
+  wiped them (2026-11-04). The archive below is the history.
 - `scripts/inbox.py send inbox/ --to PM-ui --from PM-ui-2 "<message>"` appends a row with an id
   (`M-<n>`), the sender, the time, and `unread`. Writes are locked: PMs send at the same time.
 - A message is a pointer plus one or two sentences: the hash, the ticket, the file. Anything longer
@@ -22,17 +25,18 @@ nothing shows whether the other PM read it.
     `ack` o `recibido` no cuenta como respuesta. Despierta al tiro.
   - `[aviso]`: para dejar constancia (cerrado, lanzado, corregido). No lleva instrucciones; si pide
     hacer algo es un `[encargo]` aunque diga `[aviso]`, y el destinatario lo trata como encargo.
-    No despierta al PO de inmediato: los avisos al PO esperan hasta que el más antiguo tenga 15
-    minutos, y entonces el PO despierta una vez por todos ellos (D-282).
+    No despierta al PO de inmediato: los avisos al PO esperan hasta que el más antiguo tenga 10
+    minutos, y entonces el PO despierta una vez por todos ellos.
 
 ## The mailbox stays short
 
 The sweep runs `scripts/archivar.py` (D-283). Read rows older than 48 hours move to
-`inbox/archivo/<mailbox>-AAAA-MM.md`; unread rows and the newest row never move, so ids are not
-handed out twice. Lines of `.wakes.log` older than 7 days move to `inbox/archivo/wakes-AAAA-MM.log`.
+`inbox/archivo/<mailbox>-AAAA-MM.md`; unread rows never move. `send` numbers past the highest id
+of the live file and of the mailbox's archive files, so an id is never handed out twice, even after
+a restore. Lines of `.wakes.log` older than 7 days move to `inbox/archivo/wakes-AAAA-MM.log`.
 The same pass moves `closed` rows of every `STATUS.md` to `STATUS-archivo.md`, except the 5 most
 recently updated, and directives `executed` or `superseded` below `## Archived` in the focus files.
-It moves and never deletes; whoever commits a file commits its archive too.
+It moves and never deletes; whoever commits a `STATUS.md` or focus file commits its archive too.
 
 ## When a PM writes
 
@@ -89,7 +93,7 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   findable after its first read), waits up to 30 minutes for it to be idle, and sends it one turn
   that says to read the mailbox. The turn shows live in the PM's window. It does not pass
   `--auto`: permission prompts still go to the human.
-- **Avisos to a mailbox with a hold wait.** `HOLD` in `wake.py` (today only `PO`, 15 minutes) keeps
+- **Avisos to a mailbox with a hold wait.** `HOLD` in `wake.py` (today only `PO`, 10 minutes) keeps
   avisos until the oldest has waited that long, then wakes once for all of them. The waker polls
   meanwhile, so a `[bloqueo]` o un `[encargo]` (`[decision]` es alias) que llegue durante la espera
   despierta al tiro.
@@ -101,3 +105,14 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   with `inbox.py read`, it is.
 - Every decision (woke, capped, skipped and why) is a line in `inbox/.wakes.log`, which is also
   what the cap counts. Read it at the daily next to `check`.
+
+## The PM never waits on its dev
+
+A PM launches a dev and goes on with other work. It does not poll. Every minute `inbox.js` runs
+`wake.py --reap`: for each dev session in `inbox/.lanzar/log` that finished in the last 30 minutes
+and did not run `inbox.py send --to <its PM>`, the PM gets one `[encargo]` from `lanzador`:
+«<ticket> terminó y entregó sin avisarte» (a commit, a `reported` row, or the expected report) or
+«terminó sin entregar», with the commits and the session id. That wakes it. A dev that did write
+to its PM gets no second message. Commits are read from the output of `git commit` only, and
+«wrote to its PM» means a shell call that ran `inbox.py send --to <PM>`, not a file that mentions
+it.
