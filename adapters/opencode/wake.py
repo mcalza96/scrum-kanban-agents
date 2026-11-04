@@ -63,6 +63,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import archivar  # noqa: E402
+import candados  # noqa: E402
 import inbox  # noqa: E402
 import stale_worktrees  # noqa: E402
 
@@ -612,19 +613,26 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
                 if sid in seen:
                     continue
                 pm = _resolve_pm(db2, root, sid, title, parent_id)
+                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
+                shas = _commits_of(db2, sid)
+                touched = candados.removed(repo, shas)
+                gate = (f" Candados tocados: {candados.summary(touched)} ({' '.join(sorted({c for c, _, _ in touched}))});"
+                        " justifícalo en el reporte o pide el OK del dueño antes de cerrar (regla 4)."
+                        ) if touched else ""
                 if _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
+                    msg = f"[encargo] {ticket}: session {sid}.{gate}" if touched else None
+                else:
+                    known = ticket if ticket != "?" else None
+                    delivered = bool(shas) or _has_delivery_evidence(db2, sid, known, repo, root)
+                    reported_txt = "sí" if _is_reported(known, repo) else "no"
+                    # "terminó sin entregar" is not "murió sin reportar" (failed)
+                    what = "terminó y entregó sin avisarte" if delivered else "terminó sin entregar"
+                    msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
+                           f"reported: {reported_txt} | session {sid}. Verifica y cierra o devuelve.{gate}")
+                if msg is None:
                     af.write(sid + "\n")
                     seen.add(sid)
                     continue
-                ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
-                known = ticket if ticket != "?" else None
-                shas = _commits_of(db2, sid)
-                delivered = bool(shas) or _has_delivery_evidence(db2, sid, known, repo, root)
-                reported_txt = "sí" if _is_reported(known, repo) else "no"
-                # "terminó sin entregar" is not "murió sin reportar" (failed)
-                what = "terminó y entregó sin avisarte" if delivered else "terminó sin entregar"
-                msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
-                       f"reported: {reported_txt} | session {sid}. Verifica y cierra o devuelve.")
                 try:
                     inbox.send(root, pm, "lanzador", msg)
                 except Exception:

@@ -79,7 +79,9 @@ pending → in progress → reported → closed
    - a test that must still fail;
    - a before/after measurement on a **hidden** evaluation set the dev never sees.
 
-   Cases used to iterate and cases used to validate are kept separate. Read `references/gates.md`.
+   Cases used to iterate and cases used to validate are kept separate. A test assertion is a gate:
+   `scripts/candados.py` lists every assertion a ticket's commits removed, and the PM sees that
+   list before closing. Read `references/gates.md`.
 5. **Prompts have an addressee and stand alone.** Every prompt starts with `TO: <agent>` and
    assumes a brand-new session, with no memory of this one.
 6. **Fast, single-run tests.** A suite is run once to a file, and then that file is filtered. The
@@ -147,7 +149,8 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
 1. The artifact exists at the declared path, and the PM opened it.
 2. The tests pass with exit 0. The exact command is in the report, and the PM re-ran it.
 3. Every pasted output matches the PM's re-run (rule 2).
-4. The gates pass, and none of them changed without rule 4.
+4. The gates pass, and none of them changed without rule 4: `scripts/candados.py <repo> <shas>`
+   over the ticket's commits lists no removed assertion, or each one is justified in the report.
 5. No test of the form «the real output of case X passes».
 6. The report is a pointer plus a short summary. The payload stays in the repo.
 7. A verifier other than the dev approved the work. If the criterion is fully mechanical, a
@@ -218,6 +221,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `references/lessons.md` | Field lessons, grouped by topic |
 | `templates/` | `STATUS.md`, `TICKET.md`, `REVIEW.md`, `CLOSING-PLAN.md`, `PROMPT.md`, `FOCUS.md` |
 | `scripts/check_report.py` | Extracts the `$ command` blocks of a report, flags edits, re-runs them |
+| `scripts/candados.py` | Lists the assertions a set of commits removed from test files (rule 4) |
 | `adapters/opencode/control.sh` | The auditor's read-only check of the last N minutes (references/lessons.md, «Supervision») |
 | `scripts/archivar.py` | Moves read mail, old wake lines, closed STATUS rows and done directives to archive files (run by the sweep) |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |

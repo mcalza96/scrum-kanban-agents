@@ -35,6 +35,21 @@ A change to a gate or a threshold, in either direction, needs all three:
 If a dev finds out mid-ticket that another gate would need to change, the dev **stops** and
 reports. The dev does not change it.
 
+### A test assertion is a gate
+
+Rewriting an assertion so that one's own change passes is changing a gate, and a commit message
+that says «gates intact» is a claim, not evidence. Before closing, the PM runs
+`scripts/candados.py <repo> <ticket's shas>`: it prints every assertion line the commits removed
+from a test file (a modified assertion counts, since its old line is gone), and exits 1 if there
+is any. Each one is either justified in the report (a rewrite that keeps what the test blocks)
+or goes to the human for the OK above.
+
+In opencode the launcher does it on its own: when a dev it started finishes, `wake.py --reap`
+runs the check over the dev's commits and sends the list to the PM, even if the dev already
+reported. Commits the PM makes itself after the dev finishes are only caught by the PM's own
+run. Why: in one project, 13 of the 21 commits that touched tests on one day removed assertions,
+several under a message saying the gates were intact, and nobody looked.
+
 ## Iteration cases versus validation cases
 
 - **Iteration cases** are the examples the dev works against. The dev may see them and debug them.

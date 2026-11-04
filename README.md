@@ -95,7 +95,7 @@ Tests: `python3 -m unittest discover -s scripts/tests`.
 SKILL.md          the skill: roles, lifecycle, the twelve rules, DoD, metrics
 references/       one topic per file (evidence, gates, file mode, board mode, ...)
 templates/        STATUS, TICKET, REVIEW, PROMPT, CLOSING-PLAN, FOCUS
-scripts/          check_report.py, focus.py, inbox.py, archivar.py, stale_worktrees.py, tests
+scripts/          check_report.py, candados.py, focus.py, inbox.py, archivar.py, stale_worktrees.py, tests
 adapters/         opencode (inbox, wake, lanzar, guard, control.sh), codex, Hermes kanban
 ```
 
