@@ -22,14 +22,14 @@ GOOD = """# Focus of line X
 
 ## Directives in force
 
-| Id | Kind | Scope | Human's words | Date | Status |
-|---|---|---|---|---|---|
-| D-1 | objective | line | «ship A» | 2026-10-01 | in force |
-| D-2 | nuance | T-07 | «tweak B» | 2026-10-02 | superseded by D-3 |
-| D-3 | nuance | T-07 | «tweak B differently» | 2026-10-03 | in force |
+| Id | Kind | Scope | Human's words | Date | Supersedes | Status |
+|---|---|---|---|---|---|---|
+| D-1 | objective | line | «ship A» | 2026-10-01 | — | in force |
+| D-3 | nuance | T-07 | «tweak B differently» | 2026-10-03 | D-2 | in force |
 
 ## Archived
 
+| D-2 | nuance | T-07 | «tweak B» | 2026-10-02 | — | superseded by D-3 |
 | D-0 | nuance | T-01 | «old» | 2026-09-01 | closed |
 """
 
@@ -65,7 +65,7 @@ class FocusTest(unittest.TestCase):
         self.assertTrue(any("kind 'hint'" in f for f in flags))
 
     def test_objectives_in_force(self):
-        none = GOOD.replace("2026-10-01 | in force", "2026-10-01 | superseded by D-3")
+        none = GOOD.replace("2026-10-01 | — | in force", "2026-10-01 | — | superseded by D-3")
         self.assertTrue(any("0 objectives in force" in f for f in focus.check(none, 60)))
 
     def test_anchor_too_long(self):
@@ -80,14 +80,37 @@ class FocusTest(unittest.TestCase):
         self.assertTrue(any("D-3 row is" in f for f in focus.check(packed, 60)))
 
     def test_status_vocabulary_and_executed_rows(self):
-        bad = GOOD.replace("| 2026-10-03 | in force |", "| 2026-10-03 | done |")
+        bad = GOOD.replace("| 2026-10-03 | D-2 | in force |", "| 2026-10-03 | D-2 | done |")
         self.assertTrue(any("status 'done'" in f for f in focus.check(bad, 60)))
-        paused = GOOD.replace("| 2026-10-03 | in force |", "| 2026-10-03 | suspended by D-1 |")
+        paused = GOOD.replace("| 2026-10-03 | D-2 | in force |", "| 2026-10-03 | D-2 | suspended by D-1 |")
         self.assertEqual(focus.check(paused, 60), [])
-        done = GOOD.replace("| 2026-10-03 | in force |", "| 2026-10-03 | executed (MIG-1, abc123) |")
+        done = GOOD.replace("| 2026-10-03 | D-2 | in force |", "| 2026-10-03 | D-2 | executed (MIG-1, abc123) |")
         self.assertEqual([f for f in focus.check(done, 60) if "status" in f], [])
         self.assertTrue(any("D-3 is executed: move it to ## Archived" in f
                             for f in focus.check(done, 60)))
+
+    # Candado 2026-11-04: una directiva nueva que contradice otra la deja obsoleta y la saca del
+    # ancla; antes dependía de que el PM se acordara (comunidad.md: 121 en vigor, 2 reemplazadas).
+    def test_supersedes_column(self):
+        old = GOOD.replace(" Supersedes |", "").replace("|---|---|---|---|---|---|---|", "|---|---|---|---|---|---|")
+        old = old.replace(" — | in force", " in force").replace(" D-2 | in force", " in force")
+        self.assertTrue(any("no Supersedes column" in f for f in focus.check(old, 60)), old)
+        empty = GOOD.replace("| 2026-10-03 | D-2 |", "| 2026-10-03 |  |")
+        self.assertTrue(any("D-3 has an empty Supersedes" in f for f in focus.check(empty, 60)))
+        still = GOOD.replace("| — | superseded by D-3 |", "| — | in force |")
+        self.assertTrue(any("D-3 supersedes D-2, which is still 'in force'" in f
+                            for f in focus.check(still, 60)))
+        ghost = GOOD.replace("| 2026-10-03 | D-2 |", "| 2026-10-03 | D-7 |")
+        self.assertTrue(any("supersedes D-7, which does not exist" in f
+                            for f in focus.check(ghost, 60)))
+        bad = GOOD.replace("| 2026-10-03 | D-2 |", "| 2026-10-03 | la anterior |")
+        self.assertTrue(any("expected D-<n> ids or —" in f for f in focus.check(bad, 60)))
+
+    def test_superseded_rows_leave_the_anchor(self):
+        kept = GOOD.replace("| D-3 | nuance |",
+                            "| D-2 | nuance | T-07 | «tweak B» | 2026-10-02 | — | superseded by D-3 |\n| D-3 | nuance |"
+                            ).replace("| D-2 | nuance | T-07 | «tweak B» | 2026-10-02 | — | superseded by D-3 |\n| D-0", "| D-0")
+        self.assertIn("D-2 is superseded: move it to ## Archived", "\n".join(focus.check(kept, 60)))
 
     def test_state_line(self):
         self.assertIn('no "**State:**" line',

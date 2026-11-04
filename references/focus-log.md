@@ -42,8 +42,14 @@ directive (`D-<n>`) with the human's words quoted:
   confirms it when asked.
 - **When a message contradicts the anchor, ask; don't pick.** One line: «D-4 says X; this says Y.
   Does Y replace D-4, or apply only to T-07?» Until the human answers, the anchor stays as it is.
-- A later directive supersedes an earlier one only by naming it. Both stay in the file, and the old
-  one is marked `superseded by D-<n>`.
+- **Every new row says what it makes obsolete.** Before writing a directive, the PM reads the ones
+  in force at its scope and fills `Supersedes` with the ids the new one contradicts or replaces,
+  or `—` after checking there are none. In the same edit each id named is marked
+  `superseded by D-<n>` and moved to `## Archived`, so the anchor only holds what is in force.
+  The lint flags an empty `Supersedes`, an id named there that is still in force, a superseded
+  row left in the anchor, and a table without the column. Why: the rule used to be «supersedes
+  only by naming it», which depended on the PM remembering to look; one line held 121
+  directives in force and 2 superseded.
 - **Level: the default is the narrowest one, the PM's own line.** A message goes to the project
   file only when the PO says so, or confirms it when asked. A message that contradicts a wider
   level is a question to the PO, never a line directive that overrides it.

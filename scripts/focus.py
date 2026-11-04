@@ -63,6 +63,7 @@ class Directive:
     date: str
     status: str
     line: int
+    supersedes: str | None = None  # None: the table has no Supersedes column
 
 
 def anchor_lines(text: str) -> list[str]:
@@ -133,13 +134,53 @@ def hook(root: str, event: dict) -> str:
 
 
 def directives(lines: list[str]) -> list[Directive]:
-    """Rows of the directives table: | Id | Kind | Scope | Human's words | Date | Status |."""
-    found = []
+    """Rows of the directives table: | Id | Kind | Scope | Human's words | Date | Supersedes | Status |.
+
+    Columns are read by the table's header, so a table without Supersedes (the older format)
+    still parses; rows under no matching header are read as Date and Status in the last two."""
+    found, cols = [], None
     for n, line in enumerate(lines, 1):
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) >= 6 and re.fullmatch(r"D-\d+", cells[0]):
-            found.append(Directive(cells[0], cells[1], cells[-2], cells[-1], n))
+        if cells and cells[0] == "Id":
+            cols = cells
+        elif len(cells) >= 6 and re.fullmatch(r"D-\d+", cells[0]):
+            if cols and len(cells) == len(cols) and "Date" in cols and "Status" in cols:
+                row = dict(zip(cols, cells))
+                found.append(Directive(cells[0], cells[1], row["Date"], row["Status"], n,
+                                       row.get("Supersedes")))
+            else:
+                found.append(Directive(cells[0], cells[1], cells[-2], cells[-1], n))
     return found
+
+
+SUPERSEDES_NONE = {"—", "-"}
+
+
+def supersedes_flags(ds: list[Directive], every: dict[str, Directive]) -> list[str]:
+    """A new directive says which ones it makes obsolete, or "—" after checking there are none,
+    and each one it names is marked superseded by it: the check runs when the row is written,
+    not when someone remembers to look."""
+    flags = []
+    for d in ds:
+        if d.supersedes is None:
+            continue
+        v = d.supersedes.strip()
+        if not v:
+            flags.append(f"line {d.line}: {d.id} has an empty Supersedes: write the ids it makes "
+                         "obsolete, or — after checking the directives in force")
+            continue
+        if v in SUPERSEDES_NONE:
+            continue
+        for old in re.split(r"[,\s]+", v):
+            if not re.fullmatch(r"D-\d+", old):
+                flags.append(f"line {d.line}: {d.id} supersedes {old!r}: expected D-<n> ids or —")
+            elif old not in every:
+                flags.append(f"line {d.line}: {d.id} supersedes {old}, which does not exist")
+            elif every[old].status != f"superseded by {d.id}":
+                flags.append(f"line {d.line}: {d.id} supersedes {old}, which is still "
+                             f"{every[old].status!r}: mark it superseded by {d.id} and move it "
+                             "to ## Archived")
+    return flags
 
 
 def check(text: str, max_anchor_lines: int, max_anchor_bytes: int = 12000) -> list[str]:
@@ -165,7 +206,12 @@ def check(text: str, max_anchor_lines: int, max_anchor_bytes: int = 12000) -> li
                      "superseded directives; never summarize the human's words to fit")
 
     ds = directives(anchor)
-    all_ids = {d.id for d in ds}
+    every = {d.id: d for d in directives(text.splitlines())}
+    all_ids = set(every)
+    if ds and all(d.supersedes is None for d in ds):
+        flags.append("the directives table has no Supersedes column: add it before Status and "
+                     "fill each row with the ids it makes obsolete, or — after checking")
+    flags += supersedes_flags(ds, every)
     ids: dict[str, int] = {}
     for d in ds:
         if d.id in ids:
@@ -177,11 +223,12 @@ def check(text: str, max_anchor_lines: int, max_anchor_bytes: int = 12000) -> li
         if not STATUS_OK.match(d.status):
             flags.append(f"line {d.line}: {d.id} has status {d.status!r}, expected in force, "
                          "superseded or suspended by D-<n>, or executed (<report>)")
-        if d.status.startswith("executed"):
-            flags.append(f"line {d.line}: {d.id} is executed: move it to ## Archived")
+        if d.status.startswith(("executed", "superseded")):
+            flags.append(f"line {d.line}: {d.id} is {d.status.split()[0]}: move it to ## Archived")
         if len(anchor[d.line - 1]) > MAX_ROW_CHARS:
             flags.append(f"line {d.line}: {d.id} row is {len(anchor[d.line - 1])} chars (max "
                          f"{MAX_ROW_CHARS}): one directive per row")
+    for d in every.values():
         m = SUPERSEDED.search(d.status)
         if m and m.group(1) not in all_ids:
             flags.append(f"line {d.line}: {d.id} is superseded by {m.group(1)}, "

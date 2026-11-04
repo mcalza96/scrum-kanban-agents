@@ -17,14 +17,15 @@ shared by every PM; a line file is written only by that line's PM. See `referenc
 
 ## Directives in force
 
-| Id | Kind | Scope | Human's words | Date | Status |
-|---|---|---|---|---|---|
-| D-1 | objective | line | «...» | YYYY-MM-DD | in force |
-| D-2 | constraint | line | «...» | YYYY-MM-DD | in force |
-| D-3 | nuance | T-07 | «...» | YYYY-MM-DD | superseded by D-4 |
-| D-4 | nuance | T-07 | «...» | YYYY-MM-DD | in force |
+| Id | Kind | Scope | Human's words | Date | Supersedes | Status |
+|---|---|---|---|---|---|---|
+| D-1 | objective | line | «...» | YYYY-MM-DD | — | in force |
+| D-2 | constraint | line | «...» | YYYY-MM-DD | — | in force |
+| D-4 | nuance | T-07 | «...» | YYYY-MM-DD | D-3 | in force |
 
 One directive per row; never append a decision inside another row's cell.
+Supersedes: the ids this row makes obsolete, or `—` after checking the directives in force. Each
+id named is marked `superseded by` this row and moves to `## Archived` in the same edit.
 Kinds: `objective`, `constraint`, `nuance` (the default), `decision`.
 Statuses: `in force`, `superseded by D-<n>`, `suspended by D-<n>`, `executed (<report>)`.
 Scopes: this file's level, or narrower (a ticket, a lane). Wider goes to the wider file.
@@ -35,6 +36,8 @@ States: `active`, `paused`, `closed (YYYY-MM-DD)`. An epic's objective lives in 
 - <contradiction or ambiguity the PM asked about; nothing changes until it is answered>
 
 ## Archived
+
+| D-3 | nuance | T-07 | «...» | YYYY-MM-DD | — | superseded by D-4 |
 
 <superseded directives, executed one-shot authorizations, and nuances that only governed how a
 closed ticket was done (a product rule decided at a STOP stays in force after its ticket closes)
