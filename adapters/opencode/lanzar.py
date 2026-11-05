@@ -4,7 +4,7 @@
 Vive en el plugin (inbox.js lo arranca) porque un proceso desacoplado lanzado
 desde el shell del PM no sobrevive al turno.
 
-Tope (decisión del dueño): MAX_GLOBAL = 4 devs en la máquina. Sin tope por PM (2026-11-05):
+Tope (decisión del dueño, 2026-11-05): MAX_GLOBAL = 10 devs en la máquina (uno por núcleo). Sin tope por PM:
 un PM puede tener varios devs a la vez mientras quepan en el global.
 Subir el tope es decisión del dueño con medición en mano (epic-calidad/medicion/medir-agentes.py).
 
@@ -34,7 +34,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
 
-MAX_GLOBAL = 4
+MAX_GLOBAL = 10
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
 
 def qdir_of(root: str) -> str:

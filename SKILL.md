@@ -44,7 +44,7 @@ recommends with evidence and does not decide for the human.
   important rule is that **assigning a card is starting it**.
 - **File mode**: tickets are `.md` files, the board is `STATUS.md`, and each dev session starts
   from a `TO:` prompt. The human launches it, or the PM queues it for the runtime's launcher
-  (`inbox.py lanzar`, opencode adapter: at most 4 devs per machine, no per-PM cap). Read
+  (`inbox.py lanzar`, opencode adapter: at most 10 devs per machine, no per-PM cap). Read
   `references/file-mode.md`. Use it when tests and evaluation sets matter more than automation.
 
 Both modes share everything below.
@@ -235,7 +235,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind (removable, dirty, ahead, in use); `--reap` removes the stale ones, saving their work as `conserva/wt-<name>`, and stops idle agent postgres |
 | `adapters/opencode/inbox.js` | Plugin: unread mail in every PM turn; wakes idle PMs on new mail; runs the launcher and the dev-finished check every minute |
 | `adapters/opencode/wake.py` | Wakes a PM for its mail as soon as its session stops, with everything unread in one turn; `--reap` tells a PM its dev finished; `--sweep <repo>` (launchd, 5 min) nudges idle PMs, reaps stale worktrees, runs `archivar.py`; `--activos <repo>` lists sessions with real activity, the only evidence that someone is working |
-| `adapters/opencode/lanzar.py` | The launcher: starts queued dev sessions with `opencode run`, up to 4 per machine (no per-PM cap), and tells the PM when one fails |
+| `adapters/opencode/lanzar.py` | The launcher: starts queued dev sessions with `opencode run`, up to 10 per machine (no per-PM cap), and tells the PM when one fails |
 | `adapters/opencode/guard.js` | Plugin: blocks sleep loops, `kill` of processes the session did not start, and git that touches others' work in the shared checkout (rule 12) |
 | `adapters/codex/`, `adapters/codex.md` | Waking a Codex session from its mailbox |
 | `adapters/hermes-kanban/` | Board mode with Hermes kanban |

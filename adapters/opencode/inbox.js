@@ -13,7 +13,7 @@
 // Lanzador: el PM deja `inbox.py lanzar --pm PM-x --ticket CAL-n --prompt <ruta>`
 // que escribe en `inbox/.lanzar/`. El plugin observa esa carpeta y arranca la sesión del dev con
 // `opencode run`. Vive en el servicio (igual que wake.py) porque un hijo del shell del PM no
-// sobrevive al turno. Tope: 4 devs en la máquina, sin tope por PM (documentado en lanzar.py).
+// sobrevive al turno. Tope: 10 devs en la máquina, sin tope por PM (documentado en lanzar.py).
 import { execFileSync, spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { existsSync } from "node:fs";
