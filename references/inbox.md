@@ -104,6 +104,22 @@ human writes to it, so a message that unblocks it would wait for the human anywa
 - Every decision (woke, capped, skipped and why) is a line in `inbox/.wakes.log`, which is also
   what the cap counts. Read it at the daily next to `check`.
 
+## A pause has an owner, and the sweep keeps watching it
+
+To stop everyone (a history rewrite, a move of the repo), write `<owner PM> <ticket> [why]` on the
+first line of `inbox/.pausa`. While it exists:
+
+- `lanzar` launches only the owner's devs; the rest stay queued and go when the pause is lifted.
+- The sweep nudges only the owner, after 5 min idle instead of 20. If the owner is still idle 15 min
+  in, already nudged, the PO gets a `[bloqueo]`, once per idle stretch.
+- A PM whose wake fails is still reported to the PO, paused or not.
+- The sweep reaps no worktrees: a reap creates `conserva/` branches in the middle of a rewrite.
+- An empty `.pausa` is a pause without owner: the PO is told once, and everyone stays held.
+
+Never pause by stopping the sweep or the Director (`launchctl bootout`): `guard.js` blocks it. Why
+(2026-11-05): the ORDEN-5 plan did exactly that; its owner went idle with the pause on, four PMs
+failed to wake and were never reported, and the owner had to notice it by hand an hour later.
+
 ## The PM never waits on its dev
 
 A PM launches a dev and goes on with other work. It does not poll. Every minute `inbox.js` runs

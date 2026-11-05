@@ -161,6 +161,21 @@ def ensure_mailbox(folder: str) -> None:
     os.makedirs(folder, exist_ok=True)
 
 
+def pause(root: str) -> dict | None:
+    """The pause in force, or None. `inbox/.pausa` holds `<owner PM> <ticket> [why]` on its first
+    line. While it exists nobody launches devs or nudges PMs except the owner's, and the sweep keeps
+    running: it is what notices the owner stopped. An empty file is a pause without owner, which the
+    sweep reports to the PO. 2026-11-05: ORDEN-5 paused by bootout of the sweep; PM-calidad stopped
+    with the pause on and nobody noticed for an hour."""
+    try:
+        with open(os.path.join(root, ".pausa"), encoding="utf-8") as f:
+            words = (f.readline().split() + [None, None])[:2]
+    except FileNotFoundError:
+        return None
+    owner = words[0] if words[0] and words[0].startswith("PM") else None
+    return {"owner": owner, "ticket": words[1] if owner else None}
+
+
 def named_mailbox(path: str) -> str | None:
     """The mailbox that the .scrum.toml of the repo holding path names, even if path is gone.
 

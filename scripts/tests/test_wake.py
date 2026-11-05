@@ -257,6 +257,45 @@ class WakeTest(unittest.TestCase):
         self.assertEqual(self.wake(), "nothing new unread")
         self.assertEqual(self.po(), [])
 
+    def test_a_pause_keeps_the_sweep_on_its_owner(self):
+        # 2026-11-05: ORDEN-5 paused by bootout of the sweep. PM-calidad, the owner, went idle with
+        # the pause on, nobody nudged it, and four PMs that failed to wake were never reported.
+        self.session("ses_cal", f"inbox.py read {self.root} PM-calidad", 1, to="PM-calidad")
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 2, to="PM-ui")
+        inbox.send(self.root, "PM-calidad", "PO", "x")
+        inbox.send(self.root, "PM-ui", "PO", "x")
+        with open(os.path.join(self.root, ".pausa"), "w") as f:
+            f.write("PM-calidad ORDEN-5 filter-repo\n")
+        self.assertEqual(inbox.pause(self.root), {"owner": "PM-calidad", "ticket": "ORDEN-5"})
+        self.nudge(3)
+        self.assertEqual(self.sent, [])                                        # 3 min: nobody yet
+        self.nudge(6)                                                          # owner: 5 min, not 20
+        self.assertEqual([sid for sid, _ in self.sent], ["ses_cal"])          # only the owner
+        self.assertIn("la pausa sigue activa (ORDEN-5)", self.sent[0][1])
+        self.db.execute("insert into session_message values ('ses_cal','user',3,?)",
+                        (json.dumps({"content": [{"type": "text", "text": self.sent[0][1]}]}),))
+        self.db.commit()
+        self.assertEqual(self.po(), [])
+        self.nudge(16)                                                         # still idle: PO told
+        out = self.nudge(30)                                                   # once per idle stretch
+        self.assertTrue(any("PM-ui ses_ui: paused" in d for d in out), out)  # idle 30 min: held
+        self.assertEqual(len(self.po()), 1, self.po())
+        self.assertIn("Pausa activa (ORDEN-5) y su dueño PM-calidad", self.po()[0])
+        self.assertEqual(len(self.sent), 1)
+        self.fail_turn("ses_ui", 4)                                            # paused or not:
+        self.nudge(31)                                                         # a failed PM is told
+        self.assertTrue(any("PM-ui no responde" in m for m in self.po()), self.po())
+
+    def test_a_pause_without_owner_is_reported_and_holds_everyone(self):
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        inbox.send(self.root, "PM-ui", "PO", "x")
+        open(os.path.join(self.root, ".pausa"), "w").close()                  # 2026-11-05: empty
+        self.nudge(25)
+        self.nudge(60)
+        self.assertEqual(self.sent, [])
+        self.assertEqual(len(self.po()), 1)
+        self.assertIn(".pausa no dice quién la tiene", self.po()[0])
+
     def test_sweep_skips_busy_and_retired_pms(self):
         self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui", busy=True)
         inbox.send(self.root, "PM-ui", "PO", "x")

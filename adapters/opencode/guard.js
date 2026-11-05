@@ -14,6 +14,13 @@ import { raizGestion } from "./gestion.js";
 const SLEEP_UMBRAL = 5; // segundos, configurable por dueño
 const MAX_CMD_LOG = 120;
 
+// Mencionarlo (echo, heredoc, comillas) no es correrlo.
+export function isLaunchctlBlocked(cmd) {
+  const run = cmd.split("<<")[0]
+    .replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, '""').replace(/'[^'\\]*(?:\\.[^'\\]*)*'/g, "''");
+  return /(^|[;&|(]\s*|\bsudo\s+)launchctl\s+(bootout|unload|disable|remove|stop)\b/m.test(run);
+}
+
 function inboxRootFrom(ctx) {
   // Gestion-aware: inbox vive en raizGestion(repo)/inbox
   function gestionInbox(dir) {
@@ -255,6 +262,20 @@ export default {
             `\`git add <archivo nuevo>\` y \`git commit --only <tus archivos> -m ...\`; deja los cambios ajenos ` +
             `como están; para leer otra versión usa \`git show <sha>:<ruta>\`. Si necesitas un árbol limpio, ` +
             `trabaja en un worktree propio (\`git worktree add\`), donde esto sí se permite.`
+          );
+        }
+
+        // --- el barrido no se apaga ---
+        // 2026-11-05: el plan de pausa de ORDEN-5 hizo bootout del barrido y de codex-po; el dueño de la
+        // pausa se detuvo y nadie lo notó en una hora. Pausar es escribir inbox/.pausa, no apagar launchd.
+        if (isLaunchctlBlocked(cmd)) {
+          logBloqueo(inboxRoot, sessionID, cmd, "launchctl-barrido");
+          throw new Error(
+            `bloqueado: launchctl bootout/unload/disable/remove/stop. El barrido y el Director vigilan que ` +
+            `el trabajo avance, y más que nunca durante una pausa. ` +
+            `Qué hacer: para pausar, escribe \`<PM dueño> <ticket>\` en la primera línea de inbox/.pausa; ` +
+            `el barrido deja de empujar a los demás y de lanzar devs, y sigue vigilando al dueño. ` +
+            `Si de verdad hay que bajar un servicio, lo hace el dueño a mano.`
           );
         }
 

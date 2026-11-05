@@ -55,5 +55,20 @@ class GuardGitTest(unittest.TestCase):
                     self.assertEqual(res["regla"], regla)
 
 
+    def test_el_barrido_no_se_apaga(self):
+        # 2026-11-05: el plan de pausa de ORDEN-5 hizo bootout del barrido y nadie vio al dueño parado.
+        cases = [("launchctl bootout gui/501/cl.jitdata.portafolio.sweep", True),
+                 ("cd x && launchctl unload ~/Library/LaunchAgents/a.plist", True),
+                 ("sudo launchctl disable gui/501/x", True),
+                 ("echo 'launchctl bootout x'", False),
+                 ("launchctl list | grep jitdata", False),
+                 ("launchctl bootstrap gui/501 a.plist", False)]
+        script = (f"const g = await import({json.dumps(os.path.abspath(GUARD))});"
+                  "console.log(JSON.stringify(JSON.parse(process.argv[1]).map(c => g.isLaunchctlBlocked(c))));")
+        out = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps([c for c, _ in cases])],
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(json.loads(out.stdout), [b for _, b in cases])
+
 if __name__ == "__main__":
     unittest.main()

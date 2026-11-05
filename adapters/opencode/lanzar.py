@@ -161,8 +161,11 @@ def try_launch_one(
     _reap_failed(root, db_path)
     # recount after reap
     gcount, pcounts, _ = _active_counts(root, db_path)
+    paused = inbox.pause(root)
     for entry in q:
         pm = entry.get("pm", "")
+        if paused and pm != paused["owner"]:
+            continue  # queued, not lost: it goes when the pause is lifted
         if pcounts.get(pm, 0) >= MAX_PER_PM:
             continue
         if gcount >= MAX_GLOBAL:

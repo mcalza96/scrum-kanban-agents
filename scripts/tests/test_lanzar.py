@@ -58,6 +58,22 @@ class LanzarTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(project, ".lanzar")))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "nada")))
 
+    def test_con_pausa_solo_se_lanzan_los_devs_de_su_dueno(self):
+        # 2026-11-05: .pausa era una convención que ningún código leía.
+        with open(os.path.join(self.root, ".pausa"), "w") as f:
+            f.write("PM-calidad ORDEN-5\n")
+        inbox.lanzar(self.root, "PM-ui", "UI-1", self._prompt("TO: dev UI-1\nx"))
+        runner = self._runner_once("ses_ui")
+        self.assertIsNone(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(len(glob.glob(os.path.join(self.root, ".lanzar", "*.json"))), 1)  # sigue en cola
+        inbox.lanzar(self.root, "PM-calidad", "ORDEN-5", self._prompt("TO: dev ORDEN-5\nx"))
+        self.assertEqual(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode",
+                                               runner=self._runner_once("ses_cal"), db_path=self.db), "ses_cal")
+        os.remove(os.path.join(self.root, ".pausa"))                                        # se levanta
+        self.assertEqual(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode",
+                                               runner=self._runner_once("ses_ui"), db_path=self.db), "ses_ui")
+
     def test_un_pedido_produce_exactamente_una_llamada(self):
         pr = self._prompt()
         qid = inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)

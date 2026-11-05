@@ -84,6 +84,11 @@ STALE = 12 * 3600
 # minute and the launchd sweep every 15, so 30 min covers both without replaying old sessions.
 RECENT_MS = 30 * 60 * 1000
 NUDGE_MARK = "Barrido automático"
+PAUSE_IDLE = 5 * 60     # the pause owner is nudged after 5 min idle: a pause nobody works on is the costliest state
+PAUSE_ALERT = 15 * 60   # and the PO is told when it is still idle 15 min in, already nudged
+PAUSE_NUDGE = (NUDGE_MARK + ": la pausa sigue activa ({ticket}) y {pm} es su dueño: lleva {minutes} "
+               "min sin actividad. Nadie más puede trabajar hasta que la quites. Avanza el paso "
+               "siguiente ahora, o di en una línea qué esperas y de quién.")
 NUDGE = (NUDGE_MARK + ": {pm} lleva {minutes} min sin actividad. Relee tu STATUS: si tienes "
          "reportes por verificar, o cupo de devs libre y tickets pending sin dependencia abierta, "
          "avanza ahora. Si todo lo que queda espera al dueño o a otro PM, dilo en una línea: qué "
@@ -200,6 +205,29 @@ def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
                 if real == os.path.realpath(path) or (named and real == os.path.realpath(named)):
                     return sid
     return None
+
+
+def idle_since(db: sqlite3.Connection, sid: str) -> int:
+    return db.execute("select time_idle from session_v2 where id = ?", (sid,)).fetchone()[0] or 0
+
+
+def _mtime(root: str, name: str) -> int:
+    try:
+        return int(os.path.getmtime(os.path.join(root, name)))
+    except OSError:
+        return 0
+
+
+def _once(root: str, key: str) -> bool:
+    """True the first time key is seen (inbox/.barrido-once): one alert per idle stretch or pause."""
+    path = os.path.join(root, ".barrido-once")
+    with open(path, "a+", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        if key in {line.strip() for line in f}:
+            return False
+        f.write(key + "\n")
+    return True
 
 
 def busy(db: sqlite3.Connection, sid: str) -> bool:
@@ -662,6 +690,11 @@ def sweep(repo: str, now: float | None = None, idle: float = IDLE, stale: float 
         done.extend(reap_finished(repo, DB))
     except Exception:
         pass
+    paused = inbox.pause(root)
+    if paused and not paused["owner"] and _once(root, f"pausa-sin-dueno {_mtime(root, '.pausa')}"):
+        inbox.send(root, "PO", "barrido", "[bloqueo] inbox/.pausa no dice quién la tiene: nadie "
+                   "vigila que avance. Escribe en su primera línea `<PM> <ticket>` o quítala.")
+        done.append("pause without owner, the PO was told")
     db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     try:
         for pm in inbox.mailboxes(root):
@@ -670,16 +703,30 @@ def sweep(repo: str, now: float | None = None, idle: float = IDLE, stale: float 
                 continue
             idle_for = now - (db.execute("select time_idle from session_v2 where id = ?",
                                          (sid,)).fetchone()[0] or 0) / 1000
-            if busy(db, sid) or not idle <= idle_for <= stale:
+            owner = paused and pm == paused["owner"]
+            if busy(db, sid) or not (PAUSE_IDLE if owner else idle) <= idle_for <= (
+                    float("inf") if owner else stale):
                 continue
-            if alert_failed(db, root, pm, sid):
+            if alert_failed(db, root, pm, sid):  # paused or not: a PM that cannot wake needs a new one
                 done.append(f"{pm} {sid}: its last turn failed, the PO was told")
                 continue
+            if paused and not owner:
+                done.append(f"{pm} {sid}: paused ({paused['owner'] or 'no owner'})")
+                continue
             if NUDGE_MARK in last_prompt(db, sid):
+                if owner and idle_for >= PAUSE_ALERT and _once(root, f"pausa-idle {sid} {idle_since(db, sid)}"):
+                    inbox.send(root, "PO", "barrido",
+                               f"[bloqueo] Pausa activa ({paused['ticket']}) y su dueño {pm} lleva "
+                               f"{idle_for / 60:.0f} min idle tras el empujón: nadie más puede "
+                               f"trabajar. Despiértalo o relanza un {pm} nuevo.")
+                    log(root, pm, f"pause owner idle {idle_for / 60:.0f} min, PO told")
+                    done.append(f"{pm} {sid}: pause owner idle, the PO was told")
+                    continue
                 done.append(f"{pm} {sid}: already nudged, waiting for news")
                 continue
             log(root, pm, f"nudged {sid} after {idle_for / 60:.0f} min idle")
-            send(sid, NUDGE.format(pm=pm, minutes=round(idle_for / 60)))
+            text = PAUSE_NUDGE if owner else NUDGE
+            send(sid, text.format(pm=pm, minutes=round(idle_for / 60), ticket=(paused or {}).get("ticket")))
             done.append(f"{pm} {sid}: nudged after {idle_for / 60:.0f} min idle")
     finally:
         db.close()
@@ -800,7 +847,7 @@ def main(argv: list[str]) -> int:
         repo = repo_arg(argv[1])
         root = mailbox_root(repo)
         print("\n".join(sweep(repo)) or "nobody idle")
-        print("\n".join(reap(repo)))
+        print("paused: no reap" if inbox.pause(root) else "\n".join(reap(repo)))
         for line in archivar.archive(repo):
             log(root, "archivo", line)
             print(line)
