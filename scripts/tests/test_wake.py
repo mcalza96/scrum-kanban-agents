@@ -132,42 +132,29 @@ class WakeTest(unittest.TestCase):
         self.assertEqual(len(texts), 2)  # M-3 arrived during the M-2 turn: one more
         self.assertIn("(M-1, M-2, M-3)", texts[1])
 
-    def test_the_po_debounces_120s_whatever_the_tag(self):
-        # Dueño 2026-11-05: «si, estoy de acuerdo» a «todo mensaje despierta al PO tras 2 min (debounce
-        # 120 s, se juntan los de la ventana). Sin HOLD, sin URGENT, sin distinción por etiqueta».
-        self.assertEqual(wake.DEBOUNCE, {"PO": 120})
-        now = inbox.datetime.datetime(2026, 11, 5, 12, 20, 0).astimezone()
-        def msg(text, ago):
-            sent = (now - inbox.datetime.timedelta(seconds=ago)).strftime(inbox.FMT)
-            return inbox.Message("M-1", "PM-ui", sent, text, "unread")
-        for text in ("[listo] SIM-1", "[aviso] rutina", "[bloqueo] sin base", "[encargo] haz X", "sin tag"):
-            self.assertAlmostEqual(wake.held([msg(text, 60)], 120, now), 60)   # same wait for every tag
-            self.assertEqual(wake.held([msg(text, 120)], 120, now), 0)         # the window closed
-        self.assertEqual(wake.held([msg("x", 0), msg("y", 180)], 120, now), 0)  # the oldest decides
-        self.assertEqual(wake.held([msg("x", 0)], 0, now), 0)                   # no debounce: at once
-        self.assertFalse(hasattr(wake, "HOLD") or hasattr(wake, "URGENT"))      # no tag rule comes back
-
-    def test_the_po_wakes_once_for_the_whole_window(self):
+    def test_the_po_wakes_when_it_stops_with_everything(self):
+        # Dueño 2026-11-05, «vamos»: que los mensajes le lleguen cuando esté detenido, no cada 2 min.
+        self.assertFalse(any(hasattr(wake, a) for a in ("DEBOUNCE", "HOLD", "URGENT", "held")))
         self.session("ses_po", f"inbox.py read {self.root} PO", 1)
         inbox.send(self.root, "PO", "PM-ui", "[listo] SIM-1")
-        clock = [inbox.datetime.datetime.now().astimezone()]
-        slept = []
-        real_sleep, real_now = wake.time.sleep, wake.now
-        def sleep(s):
-            slept.append(s)
-            clock[0] += inbox.datetime.timedelta(seconds=s)
-            if len(slept) == 1:
-                inbox.send(self.root, "PO", "PM-ui", "[bloqueo] falta la base")  # inside the window
-        wake.time.sleep, wake.now = sleep, lambda: clock[0]
+        wake.run(self.root, "PO", send=self.send, wait=0, poll=0)  # idle: at once, no timer
+        self.assertEqual(len(self.sent), 1)
+        self.sent.clear()
+        self.db.execute("update session_v2 set time_busy = 3, time_idle = 2")  # working
+        self.db.commit()
+        inbox.send(self.root, "PO", "PM-ui", "[aviso] rutina")
+        def sleep(_):  # while it works another arrives; then it stops
+            inbox.send(self.root, "PO", "PM-ui", "[bloqueo] falta la base")
+            self.db.execute("update session_v2 set time_busy = 3, time_idle = 4")
+            self.db.commit()
+        real = wake.time.sleep
+        wake.time.sleep = sleep
         try:
-            wake.run(self.root, "PO", send=self.send, wait=0, poll=30)
+            wake.run(self.root, "PO", send=self.send, wait=60, poll=1)
         finally:
-            wake.time.sleep, wake.now = real_sleep, real_now
-        self.assertEqual(len(self.sent), 1)                 # one wake for both
-        self.assertIn("(M-1, M-2)", self.sent[0][1])
-        self.assertLessEqual(sum(slept), 120 + 60)          # about two minutes, not ten
-        with open(wake.log_path(self.root)) as f:
-            self.assertEqual(sum(" PO held M-1" in line for line in f), 1)  # logged once
+            wake.time.sleep = real
+        self.assertEqual(len(self.sent), 1)                 # one turn when it stopped
+        self.assertIn("M-2, M-3", self.sent[0][1])          # with what came during the wait
 
     def test_other_mailboxes_are_not_held(self):
         self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1)

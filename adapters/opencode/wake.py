@@ -18,8 +18,9 @@ It finds the PM's session in opencode's database: the newest top-level session t
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
 `opencode run --session` through the running service, so the turn shows live in the PM's window.
 
-- No cap on wakes (owner, 2026-11-04: «quita el límite de despertares»). The debounce and the
-  busy check are what keep a session from being flooded.
+- No cap on wakes (owner, 2026-11-04: «quita el límite de despertares»). The busy check is what keeps a
+  session from being flooded: a busy session gets nothing; when it stops, one turn carries every
+  unread message, including those that arrived while it worked.
 - One waker per PM at a time (a lock). It loops while new unread ids keep arriving, and never wakes
   for an id an earlier wake already announced (the log says which): a PM that read a message and
   is waiting on someone is left alone, and acks, which also change the mailbox, wake nobody.
@@ -31,11 +32,11 @@ It finds the PM's session in opencode's database: the newest top-level session t
   failed every wake for hours (the provider rejected their history with a 400) while the log said
   "woke" and "nudged", and 11 messages sat unread with nobody knowing.
 
-- A mailbox with a DEBOUNCE wakes once, that many seconds after its oldest unread message, for
-  every message that arrived in the window, whatever its tag. Today only the PO has one: 120 s.
-  Why (owner, 2026-11-05: «si, estoy de acuerdo» to «todo mensaje despierta al PO tras 2 min»,
-  replacing D-282's 10-minute hold of avisos): PMs' [listo] waited up to 17 minutes to reach the
-  PO, 222 minutes in all on 2026-11-04, while two minutes still batch a burst into one wake.
+- No mailbox waits on a timer: an idle session wakes at once, whatever the tag. Why (owner,
+  2026-11-05, «vamos» to «que le lleguen cuando esté detenido en vez de cada 2 minutos»): a
+  120 s debounce kept an idle PO waiting; on 12:31 it sat stopped 79 s with M-1331 unread. It
+  replaced D-282's 10-minute hold of avisos, which made PMs' [listo] wait 222 minutes in all on
+  2026-11-04. The busy wait already batches what arrives during a turn.
 
 Every decision is one line in inbox/.wakes.log.
 
@@ -76,7 +77,6 @@ import stale_worktrees  # noqa: E402
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
-DEBOUNCE = {"PO": 120}  # seconds after its oldest unread that a mailbox wakes (owner, 2026-11-05)
 IDLE = 20 * 60
 STALE = 12 * 3600
 # A dev that delivered without telling its PM is news only while fresh. The plugin checks every
@@ -133,16 +133,6 @@ def woken_ids(root: str, pm: str, sid: str) -> set[str]:
     except FileNotFoundError:
         pass
     return ids
-
-
-def held(msgs: list, debounce: float, now: datetime.datetime) -> float:
-    """Seconds left before msgs wake: debounce minus the age of the oldest, never below 0."""
-    ages = [(inbox.age_hours(m.sent, now) or 0.0) * 3600 for m in msgs]
-    return max(0.0, debounce - max(ages, default=debounce))
-
-
-def now() -> datetime.datetime:
-    return datetime.datetime.now().astimezone()
 
 
 def repo_of(root: str) -> str:
@@ -714,7 +704,6 @@ def run(root: str, pm: str, wait: float = WAIT, poll: float = POLL, send=None) -
 
 
 def _loop(db, root, pm, wait, poll, send) -> str:
-    holding = False
     while True:
         msgs = [m for m in inbox.messages(root, pm) if m.unread]
         unread = [m.id for m in msgs]
@@ -731,13 +720,6 @@ def _loop(db, root, pm, wait, poll, send) -> str:
         if not new:
             what = "nothing new unread"
             break
-        left = held(new, DEBOUNCE.get(pm, 0), now())
-        if left:
-            if not holding:
-                log(root, pm, f"held {' '.join(m.id for m in new)}: debounce, wake in {left:.0f} s")
-                holding = True
-            time.sleep(min(poll, left))
-            continue
         deadline = time.monotonic() + wait
         while busy(db, sid) and time.monotonic() < deadline:
             time.sleep(poll)
@@ -745,6 +727,7 @@ def _loop(db, root, pm, wait, poll, send) -> str:
             what = f"skipped: {sid} busy for {wait / 60:.0f} min"
             log(root, pm, what)
             break
+        unread = [m.id for m in inbox.messages(root, pm) if m.unread]  # what came during the turn too
         what = f"woke {sid} for {' '.join(unread)}"
         log(root, pm, what)
         script = os.path.abspath(inbox.__file__)

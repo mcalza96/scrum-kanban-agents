@@ -93,9 +93,9 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   findable after its first read), waits up to 30 minutes for it to be idle, and sends it one turn
   that says to read the mailbox. The turn shows live in the PM's window. It does not pass
   `--auto`: permission prompts still go to the human.
-- **A mailbox with a debounce wakes once per window.** `DEBOUNCE` in `wake.py` (today only `PO`,
-  120 s) wakes the session that many seconds after its oldest unread message, for every message of
-  the window, whatever its tag (owner, 2026-11-05). Other mailboxes wake at once.
+- **No timer: a session gets its mail when it stops.** Idle, it wakes at once, whatever the tag.
+  Busy, it gets nothing; when the turn ends, one turn carries every unread message, including what
+  arrived during the work (owner, 2026-11-05, replacing a 120 s debounce for the PO).
 - **No cap on wakes** (owner, 2026-11-04). No id wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
   ack, which also changes the mailbox, wakes nobody.
 - A PM that never ran `inbox.py read` (it opened the file with `cat`) is not findable: its line in
