@@ -46,6 +46,11 @@ import re
 import sys
 from dataclasses import dataclass
 
+try:
+    import gestion  # type: ignore
+except ImportError:
+    gestion = None  # type: ignore
+
 KINDS = {"objective", "constraint", "nuance", "decision"}
 END_OF_ANCHOR = re.compile(r"^##\s+(Archived|Log)\s*$")
 SUPERSEDED = re.compile(r"superseded by (D-\d+)")
@@ -292,6 +297,7 @@ SKIP_DIRS = {".git", "node_modules", ".next"}
 
 def used_numbers(repo: str, prefix: str, pattern: str | None) -> set[int]:
     """Numbers already taken: by files under repo, by focus directives (D), and by the ledger."""
+    gr = gestion.raiz_gestion(repo) if gestion else repo
     nums: set[int] = set()
     if pattern:  # e.g. db/migrations/*.sql: the number is the basename's leading digits
         for path in glob.glob(os.path.join(repo, pattern)):
@@ -304,14 +310,14 @@ def used_numbers(repo: str, prefix: str, pattern: str | None) -> set[int]:
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
             nums.update(int(n) for f in files for n in name.findall(f))
         if prefix == "D":
-            focus_dir = os.path.join(repo, "focus")
+            focus_dir = os.path.join(gr, "focus")
             for f in [os.path.join(focus_dir, "PROJECT.md")] + glob.glob(
                     os.path.join(focus_dir, "lines", "*.md")):
                 for d in directives((read(f) or "").splitlines()):
                     m = re.match(r"D-(\d+)", d.id)
                     if m:
                         nums.add(int(m.group(1)))
-    for line in (read(os.path.join(repo, "focus", CLAIMS)) or "").splitlines():
+    for line in (read(os.path.join(gr, "focus", CLAIMS)) or "").splitlines():
         cols = line.split("\t")
         if len(cols) >= 2 and cols[0] == prefix and cols[1].isdigit():
             nums.add(int(cols[1]))
@@ -321,7 +327,8 @@ def used_numbers(repo: str, prefix: str, pattern: str | None) -> set[int]:
 def claim(repo: str, prefix: str, by: str, pattern: str | None = None) -> str:
     """Hand out the next free number for prefix, atomically across concurrent PMs."""
     import fcntl
-    ledger = os.path.join(repo, "focus", CLAIMS)
+    gr = gestion.raiz_gestion(repo) if gestion else repo
+    ledger = os.path.join(gr, "focus", CLAIMS)
     os.makedirs(os.path.dirname(ledger), exist_ok=True)
     with open(ledger, "a+") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)  # released when the file closes

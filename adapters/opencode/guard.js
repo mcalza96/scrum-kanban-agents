@@ -9,19 +9,24 @@ import { execSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { raizGestion } from "./gestion.js";
 
 const SLEEP_UMBRAL = 5; // segundos, configurable por dueño
 const MAX_CMD_LOG = 120;
 
 function inboxRootFrom(ctx) {
+  // Gestion-aware: inbox vive en raizGestion(repo)/inbox
+  function gestionInbox(dir) {
+    try { return join(raizGestion(dir), "inbox"); } catch { return join(dir, "inbox"); }
+  }
   // Intenta ctx.location.directory (v2), si no, deduce de __dirname (copia en .opencode/plugin)
   try {
     if (ctx && ctx.location && ctx.location.directory) {
-      const cand = join(ctx.location.directory, "inbox");
+      const cand = gestionInbox(ctx.location.directory);
       if (existsSync(cand)) return cand;
       // también prueba worktree
       if (ctx.location.worktree) {
-        const cand2 = join(ctx.location.worktree, "inbox");
+        const cand2 = gestionInbox(ctx.location.worktree);
         if (existsSync(cand2)) return cand2;
       }
       return cand;
@@ -29,7 +34,8 @@ function inboxRootFrom(ctx) {
   } catch {}
   // fallback: resolver relativo al archivo (funciona para .opencode/plugin/guard.js -> ../../inbox)
   try {
-    const r = resolve(dirname(fileURLToPath(import.meta.url)), "../../inbox");
+    const proj = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const r = gestionInbox(proj);
     if (existsSync(r)) return r;
     // para skill template (no se ejecuta), igual devuelve ruta relativa
     return r;

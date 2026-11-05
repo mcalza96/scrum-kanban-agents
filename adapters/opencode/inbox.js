@@ -20,8 +20,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { raizGestion } from "./gestion.js";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../inbox");
+const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const ROOT = join(raizGestion(PROJECT), "inbox");
 const SCRIPT = process.env.INBOX_PY ||
   join(homedir(), ".claude/skills/scrum-kanban-agents/scripts/inbox.py");
 const WAKE = join(dirname(SCRIPT), "../adapters/opencode/wake.py");

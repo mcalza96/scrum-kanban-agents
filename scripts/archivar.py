@@ -30,6 +30,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inbox  # noqa: E402
+import gestion  # noqa: E402
 
 INBOX_HOURS = 48     # owner decision
 WAKES_DAYS = 7
@@ -116,7 +117,8 @@ def wakes(root: str, now: datetime.datetime, dry: bool) -> list[str]:
 
 def statuses(repo: str, dry: bool) -> list[str]:
     done = []
-    for path in sorted(glob.glob(os.path.join(repo, "epic-*", "STATUS*.md"))):
+    gr = gestion.raiz_gestion(repo)
+    for path in sorted(glob.glob(os.path.join(gr, "epic-*", "STATUS*.md"))):
         if path.endswith("-archivo.md"):
             continue
         with open(path, encoding="utf-8") as f:
@@ -157,7 +159,8 @@ def statuses(repo: str, dry: bool) -> list[str]:
 
 def directives(repo: str, dry: bool) -> list[str]:
     done = []
-    for path in sorted(glob.glob(os.path.join(repo, "focus", "**", "*.md"), recursive=True)):
+    gr = gestion.raiz_gestion(repo)
+    for path in sorted(glob.glob(os.path.join(gr, "focus", "**", "*.md"), recursive=True)):
         if path.endswith("-archivo.md"):
             continue
         with open(path, encoding="utf-8") as f:
@@ -183,7 +186,7 @@ def directives(repo: str, dry: bool) -> list[str]:
 
 def archive(repo: str, now: datetime.datetime | None = None, dry: bool = False) -> list[str]:
     now = now or datetime.datetime.now().astimezone()
-    root = os.path.join(repo, "inbox")
+    root = os.path.join(gestion.raiz_gestion(repo), "inbox")
     done = []
     if os.path.isdir(root):
         done += mailboxes(root, now, dry) + wakes(root, now, dry)

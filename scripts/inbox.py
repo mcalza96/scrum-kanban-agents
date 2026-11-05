@@ -32,6 +32,11 @@ import re
 import sys
 from dataclasses import dataclass
 
+try:
+    import gestion  # type: ignore
+except ImportError:
+    gestion = None  # type: ignore
+
 HEADER = """# Inbox of {pm}
 
 Messages to {pm}. Read the unread ones, act, then `inbox.py ack`. Never edit other rows.
@@ -236,8 +241,22 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
     # El lanzador solo observa <buzón>/.lanzar/: un pedido encolado en otra carpeta queda varado
     # sin error (2026-11-04: 6 pedidos en <proyecto>/.lanzar/ porque el PM pasó la raíz del
     # proyecto). Una raíz que no existe o que contiene un inbox/ no es el buzón.
-    if os.path.isdir(os.path.join(root, "inbox")):
-        raise ValueError(f"{root} es el proyecto, no el buzón; ¿quisiste decir {os.path.join(root, 'inbox')}?")
+    # Gestion-aware: detecta tanto inbox/ como gestion/inbox cuando gestion está configurado.
+    def _is_repo_root(p: str) -> bool:
+        if os.path.isdir(os.path.join(p, "inbox")):
+            return True
+        if gestion is not None:
+            try:
+                gr = gestion.raiz_gestion(p)
+                if os.path.abspath(gr) != os.path.abspath(p) and os.path.isdir(os.path.join(gr, "inbox")):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    if _is_repo_root(root):
+        hint = os.path.join(gestion.raiz_gestion(root), "inbox") if gestion else os.path.join(root, "inbox")
+        raise ValueError(f"{root} es el proyecto, no el buzón; ¿quisiste decir {hint}?")
     if not os.path.isdir(root):
         raise ValueError(f"no existe el buzón {root}")
     qdir = os.path.join(root, ".lanzar")

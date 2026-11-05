@@ -64,6 +64,7 @@ import unicodedata
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import archivar  # noqa: E402
 import candados  # noqa: E402
+import gestion  # noqa: E402
 import inbox  # noqa: E402
 import stale_worktrees  # noqa: E402
 
@@ -359,9 +360,10 @@ def _is_dev(parent_id, title) -> bool:
 def _is_reported(ticket: str | None, repo: str) -> bool:
     if not ticket:
         return False
-    # solo lectura, busca en epic-*/STATUS.md y STATUS*.md
-    patterns = [os.path.join(repo, "epic-*", "STATUS.md"),
-                os.path.join(repo, "epic-*", "STATUS-*.md")]
+    # solo lectura, busca en epic-*/STATUS.md y STATUS*.md (gestion-aware)
+    gr = gestion.raiz_gestion(repo)
+    patterns = [os.path.join(gr, "epic-*", "STATUS.md"),
+                os.path.join(gr, "epic-*", "STATUS-*.md")]
     for pat in patterns:
         for path in glob.glob(pat):
             try:
@@ -423,15 +425,16 @@ def _expected_exists(expected: str | None, repo: str) -> bool:
     """verifica si el artefacto esperado existe (reporte/archivo)."""
     if not expected:
         return False
+    gr = gestion.raiz_gestion(repo)
     # expected es relativo al repo (ej epic-x/reports/T-1.md)
     # permite patrón con * si viene de heurística
     if "*" in expected:
-        return bool(glob.glob(os.path.join(repo, expected)))
-    abs_path = os.path.join(repo, expected) if not os.path.isabs(expected) else expected
+        return bool(glob.glob(os.path.join(gr, expected)))
+    abs_path = os.path.join(gr, expected) if not os.path.isabs(expected) else expected
     if os.path.exists(abs_path):
         return True
     # fallback: glob por si es relativo sin epic específico
-    return bool(glob.glob(os.path.join(repo, expected)))
+    return bool(glob.glob(os.path.join(gr, expected)))
 
 
 def _has_delivery_evidence(db: sqlite3.Connection, sid: str, ticket: str | None, repo: str, root: str) -> bool:
@@ -453,8 +456,9 @@ def _has_delivery_evidence(db: sqlite3.Connection, sid: str, ticket: str | None,
     if exp and _expected_exists(exp, repo):
         return True
     # reporte canónico por ticket
-    for pat in [os.path.join(repo, "epic-*", "reports", f"{ticket}.md"),
-                os.path.join(repo, "epic-*", "reports", f"{ticket}.*")]:
+    gr = gestion.raiz_gestion(repo)
+    for pat in [os.path.join(gr, "epic-*", "reports", f"{ticket}.md"),
+                os.path.join(gr, "epic-*", "reports", f"{ticket}.*")]:
         if glob.glob(pat):
             return True
     return False
@@ -509,9 +513,9 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     # 5) inferir del ticket en STATUS
     ticket = _ticket_from_title(title) or _ticket_from_prompt(db, sid)
     if ticket:
-        repo = os.path.dirname(os.path.abspath(root))
-        for pat in [os.path.join(repo, "epic-*", "STATUS.md"),
-                    os.path.join(repo, "epic-*", "STATUS-*.md")]:
+        gr = gestion.raiz_gestion(os.path.dirname(os.path.abspath(root)))
+        for pat in [os.path.join(gr, "epic-*", "STATUS.md"),
+                    os.path.join(gr, "epic-*", "STATUS-*.md")]:
             for path in glob.glob(pat):
                 try:
                     with open(path, encoding="utf-8") as f:
