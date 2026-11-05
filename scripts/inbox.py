@@ -155,17 +155,26 @@ def ensure_mailbox(folder: str) -> None:
     folder = os.path.abspath(folder)
     if os.path.isdir(folder):
         return
-    top = folder
-    while not os.path.isdir(top):
-        top = os.path.dirname(top)
-    repo = top
+    named = named_mailbox(folder)
+    if named and named != folder:
+        raise FileNotFoundError(f"no existe el buzón {folder}; el de su repo es {named}")
+    os.makedirs(folder, exist_ok=True)
+
+
+def named_mailbox(path: str) -> str | None:
+    """The mailbox that the .scrum.toml of the repo holding path names, even if path is gone.
+
+    A path from before a move (portafolio/gestion/inbox) still names today's mailbox through its
+    repo; None outside a repo or without gestion.py.
+    """
+    repo = os.path.abspath(path)
+    while not os.path.isdir(repo):
+        repo = os.path.dirname(repo)
     while repo != os.path.dirname(repo) and not os.path.exists(os.path.join(repo, ".git")):
         repo = os.path.dirname(repo)
-    if gestion and os.path.exists(os.path.join(repo, ".git")):
-        named = os.path.abspath(gestion.inbox_root(repo))
-        if named != folder:
-            raise FileNotFoundError(f"no existe el buzón {folder}; el de {repo} es {named}")
-    os.makedirs(folder, exist_ok=True)
+    if not gestion or not os.path.exists(os.path.join(repo, ".git")):
+        return None
+    return os.path.abspath(gestion.inbox_root(repo))
 
 
 def _locked_update(path: str, change) -> str:

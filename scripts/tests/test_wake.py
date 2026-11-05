@@ -100,6 +100,21 @@ class WakeTest(unittest.TestCase):
         self.wake()
         self.assertEqual(self.sent, [])
 
+    def test_a_read_from_before_the_move_still_finds_the_pm(self):
+        # 2026-11-05 13:13: after gestion/ moved to a sibling repo, PM-calidad had only read
+        # proj/gestion/inbox (gone); every wake said «no opencode session» and it never woke.
+        os.makedirs(os.path.join(self.project, ".git"))
+        nuevo = os.path.join(self.tmp.name, "proj-gestion", "inbox")
+        os.makedirs(nuevo)
+        with open(os.path.join(self.project, ".scrum.toml"), "w") as f:
+            f.write(f'gestion = "{os.path.dirname(nuevo)}"\n')
+        viejo = os.path.join(self.project, "gestion", "inbox")
+        self.session("ses_ui", f"inbox.py read {viejo} PM-ui", 1)
+        self.session("ses_otro", f"inbox.py read {self.tmp.name}/otro/inbox PM-ui", 2)  # other project
+        self.assertEqual(wake.find_session(self.db, nuevo, "PM-ui"), "ses_ui")
+        self.session("ses_repo", f"inbox.py read {self.project} PM-ui", 3)  # the repo as argument
+        self.assertEqual(wake.find_session(self.db, nuevo, "PM-ui"), "ses_repo")
+
     def test_to_counts_only_when_it_opens_the_prompt(self):
         # 2026-11-02: a PM's relaunch prompt said "launch devs with `TO: dev R-<n>`"; read anywhere,
         # that made it a dev session, and the wakes kept going to the stuck old session.

@@ -190,7 +190,10 @@ def find_session(db: sqlite3.Connection, root: str, pm: str) -> str | None:
         for cmd in commands(data):
             for path in read.findall(cmd):
                 path = os.path.join(cwd, os.path.expanduser(path.strip("'\"")))
-                if os.path.realpath(path) == real:
+                # the mailbox itself, its repo, or a path from before the mailbox moved: on
+                # 2026-11-05 PMs that had read portafolio/gestion/inbox never woke after the move
+                named = inbox.named_mailbox(path)
+                if real == os.path.realpath(path) or (named and real == os.path.realpath(named)):
                     return sid
     return None
 
