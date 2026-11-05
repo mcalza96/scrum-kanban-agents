@@ -764,10 +764,16 @@ def activos(repo: str, minutes: float = 10, db_path: str = DB, at: float | None 
     at = time.time() if at is None else at
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
+        places = [os.path.realpath(repo)] + worktrees(repo)
+        ever = [d for (d,) in db.execute("select distinct directory from session_v2")]
+        if not any(_inside(d or "", p) for d in ever for p in places):
+            # «nadie» must mean nobody now, never a wrong path: on 2026-11-05 13:06 the PO passed the
+            # gestion repo, got «nadie» and told the owner the dev was idle while it was working.
+            raise SystemExit(f"ninguna sesión de opencode corrió nunca en {repo}: pásale el repo de "
+                             "la app, donde corren los agentes")
         rows = db.execute("select id, title, time_updated, directory from session_v2"
                           " where time_updated >= ? order by time_updated desc",
                           ((at - minutes * 60) * 1000,)).fetchall()
-        places = [os.path.realpath(repo)] + worktrees(repo)
         return [f"{datetime.datetime.fromtimestamp(t / 1000).strftime('%H:%M:%S')}"
                 f"  hace {(at - t / 1000) / 60:4.1f} min  {'busy' if busy(db, sid) else 'idle'}"
                 f"  {title}  {sid}" for sid, title, t, d in rows

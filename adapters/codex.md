@@ -6,9 +6,9 @@ Codex conserva el nombre PO; los agentes siguen escribiendo en `<buzón>/PO.md`.
 ## Cada turno
 
 1. Lee SKILL.md y el ancla vigente de focus/PROJECT.md.
-2. Ejecuta scripts/inbox.py read <buzón> PO (hoy `<repo>/gestion/inbox`) antes de actuar.
+2. Ejecuta scripts/inbox.py read <repo> PO (el repo o la carpeta del buzón; una ruta que no existe es error) antes de actuar.
 3. Revisa los STATUS y .wakes.log, contrasta los reportes y manda el siguiente turno
-   con scripts/inbox.py send <buzón> --to PM-X --from PO <texto>.
+   con scripts/inbox.py send <repo> --to PM-X --from PO <texto>.
 4. Haz ack únicamente de mensajes sobre los que ya actuaste. Una lectura no es ack.
 5. No repitas mutaciones de producción al comprobar evidencia; usa comprobaciones de lectura.
 

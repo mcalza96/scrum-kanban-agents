@@ -292,6 +292,11 @@ class RepoTest(unittest.TestCase):
         self.assertEqual([l.split()[-1] for l in lines], ["s1", "s2"])
         self.assertIn("busy", lines[0])
         self.assertIn("idle", lines[1])
+        # 2026-11-05 13:06: the PO passed the gestion repo and read «nadie» as «the dev is idle».
+        # A path where no session ever ran is an error, never an empty answer.
+        with self.assertRaises(SystemExit):
+            wake.activos(self.repo + "-gestion", 10, db_path=db_path, at=at)
+        self.assertEqual(wake.activos(self.repo, 0.01, db_path=db_path, at=at), [])  # nobody now: ok
 
 
 if __name__ == "__main__":

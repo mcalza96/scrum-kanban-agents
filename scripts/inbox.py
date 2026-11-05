@@ -131,6 +131,20 @@ def _archived_max(root: str, pm: str) -> int:
     return top
 
 
+def mailbox_arg(arg: str, create: bool = False) -> str:
+    """The mailbox for a CLI argument: the repo (its .scrum.toml names the mailbox) or the folder.
+
+    A wrong path must fail, never read as an empty mailbox: on 2026-11-05 `read <repo> PO` answered
+    «no unread messages» while the PO had mail in gestion/inbox.
+    """
+    arg = os.path.abspath(arg)
+    if gestion and os.path.exists(os.path.join(arg, ".git")):
+        arg = os.path.abspath(gestion.inbox_root(arg))
+    if not create and not os.path.isdir(arg):
+        raise FileNotFoundError(f"no existe el buzón {arg}")
+    return arg
+
+
 def ensure_mailbox(folder: str) -> None:
     """Create a missing mailbox folder only if it is the one its repo's .scrum.toml names.
 
@@ -412,6 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     try:
+        if args.cmd not in ("lanzar", "hook"):  # lanzar has its own check; a hook never fails
+            args.root = mailbox_arg(args.root, create=args.cmd == "send")
         if args.cmd == "lanzar":
             print(lanzar(args.root, args.pm, args.ticket, args.prompt, args.sender))
             return 0
@@ -442,12 +458,12 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError:
                 pass
             try:
-                out = pending(args.root)
+                out = pending(mailbox_arg(args.root))  # a stale path shows up as an error line
             except Exception as e:  # a hook must never block the session
                 out = f"[inbox] error: {e}"
             if out:
                 print(out)
-    except ValueError as e:
+    except (ValueError, FileNotFoundError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     return 0

@@ -50,6 +50,14 @@ class BuzonHuerfanoTest(unittest.TestCase):
             lanzar._append_log(self.viejo, {"x": 1})
         self.assertFalse(os.path.exists(os.path.join(self.repo, "gestion")))
 
+    def test_la_cli_resuelve_el_repo_y_rechaza_rutas_que_no_existen(self):
+        # 2026-11-05: `read <repo> PO` respondía «no unread messages» con correo en gestion/inbox.
+        inbox.send(self.nuevo, "PO", "PM-ui", "hola")
+        self.assertEqual(inbox.mailbox_arg(self.repo), self.nuevo)       # el repo → su buzón
+        self.assertEqual(inbox.main(["read", self.repo, "PO"]), 0)
+        self.assertEqual(inbox.main(["read", self.viejo, "PO"]), 2)      # ruta vieja: error
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "gestion")))
+
     def test_el_plugin_no_fija_la_ruta_ni_crea_carpetas(self):
         with open(os.path.join(PLUGIN_DIR, "inbox.js"), encoding="utf-8") as f:
             js = f.read()
