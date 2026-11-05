@@ -45,6 +45,11 @@ overwrite each other, and the board never notices.
 - Tickets in the same lane run one after another. Tickets in different lanes can run in parallel.
 - When a ticket must touch a file from another lane, it says so explicitly, and the PM sequences it.
 
+## Cierre de rama
+
+- Al cerrar (PM escribe `closed` con DoD verde): `git branch -d <rama>` — minúscula, solo local, sin remoto — sin OK aparte.
+- `conserva/*` creado después de `v1` queda como deuda con expiración (fecha en la fila o en el nombre).
+
 ## Ticket parts and STOP points
 
 When a ticket needs a human decision in the middle, split it into parts (A, B, C).
