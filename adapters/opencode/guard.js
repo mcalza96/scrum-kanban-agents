@@ -6,7 +6,7 @@
 // Cada rechazo deja línea en inbox/.bloqueos.log (fecha, sesión, comando recortado, regla).
 // Errores del plugin dejan pasar el comando y lo anotan. Umbral configurable.
 import { execSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { raizGestion } from "./gestion.js";
@@ -46,7 +46,7 @@ function inboxRootFrom(ctx) {
 
 function logBloqueo(root, sessionID, cmd, regla, extra = "") {
   try {
-    mkdirSync(root, { recursive: true });
+    if (!existsSync(root)) return; // never create a mailbox folder
     const logPath = join(root, ".bloqueos.log");
     const fecha = new Date().toISOString();
     const recortado = cmd.replace(/\s+/g, " ").slice(0, MAX_CMD_LOG).replace(/\n/g, " ");
@@ -57,7 +57,7 @@ function logBloqueo(root, sessionID, cmd, regla, extra = "") {
 
 function logError(root, sessionID, cmd, err) {
   try {
-    mkdirSync(root, { recursive: true });
+    if (!existsSync(root)) return; // never create a mailbox folder
     const logPath = join(root, ".bloqueos.log");
     const fecha = new Date().toISOString();
     const recortado = String(cmd).slice(0, MAX_CMD_LOG).replace(/\n/g, " ");

@@ -139,6 +139,8 @@ def _is_session_failed(sid: str, db_path: str = DB) -> str | None:
 
 
 def _append_log(root: str, entry: dict) -> None:
+    if not os.path.isdir(root):  # a stale root: never recreate it
+        raise FileNotFoundError(f"no existe el buzón {root}")
     os.makedirs(qdir_of(root), exist_ok=True)
     with open(log_path(root), "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")

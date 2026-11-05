@@ -146,7 +146,10 @@ def repo_of(root: str) -> str:
 def mailbox_root(arg: str) -> str:
     """The mailbox folder for a CLI argument that is either the repo or the mailbox itself."""
     arg = os.path.abspath(arg)
-    return gestion.inbox_root(arg) if os.path.exists(os.path.join(arg, ".git")) else arg
+    root = gestion.inbox_root(arg) if os.path.exists(os.path.join(arg, ".git")) else arg
+    if not os.path.isdir(root):  # a stale path (an old plugin, a moved mailbox): stop, create nothing
+        raise SystemExit(f"no existe el buzón {root}")
+    return root
 
 
 def addressee(db: sqlite3.Connection, sid: str) -> str | None:
@@ -532,7 +535,7 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
     (dedup .aviso-dev con flock). No edita STATUS. Corre cada minuto
     desde el plugin inbox.js (`wake.py --reap`) y cada 15 min desde el barrido.
     """
-    if not os.path.exists(db_path):
+    if not os.path.exists(db_path) or not os.path.isdir(root):  # a stale root: never recreate it
         return []
     aviso_path = os.path.join(root, ".lanzar", ".aviso-dev")
     os.makedirs(os.path.dirname(aviso_path), exist_ok=True)

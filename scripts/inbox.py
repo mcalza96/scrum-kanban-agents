@@ -131,9 +131,32 @@ def _archived_max(root: str, pm: str) -> int:
     return top
 
 
+def ensure_mailbox(folder: str) -> None:
+    """Create a missing mailbox folder only if it is the one its repo's .scrum.toml names.
+
+    A stale path (a long-running service, a plist, a prompt from before a move) would otherwise
+    recreate the old folder and leave an orphan mailbox nobody reads: on 2026-11-05 it happened
+    twice, at the repo root in the morning and in portafolio/gestion/ after the move at 12:54.
+    """
+    folder = os.path.abspath(folder)
+    if os.path.isdir(folder):
+        return
+    top = folder
+    while not os.path.isdir(top):
+        top = os.path.dirname(top)
+    repo = top
+    while repo != os.path.dirname(repo) and not os.path.exists(os.path.join(repo, ".git")):
+        repo = os.path.dirname(repo)
+    if gestion and os.path.exists(os.path.join(repo, ".git")):
+        named = os.path.abspath(gestion.inbox_root(repo))
+        if named != folder:
+            raise FileNotFoundError(f"no existe el buzón {folder}; el de {repo} es {named}")
+    os.makedirs(folder, exist_ok=True)
+
+
 def _locked_update(path: str, change) -> str:
     """Apply change(text) -> (new_text, result) under an exclusive lock: PMs write concurrently."""
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    ensure_mailbox(os.path.dirname(path) or ".")
     with open(path, "a+", encoding="utf-8") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         f.seek(0)

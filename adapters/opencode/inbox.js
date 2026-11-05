@@ -23,7 +23,10 @@ import { fileURLToPath } from "node:url";
 import { raizGestion } from "./gestion.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const ROOT = join(raizGestion(PROJECT), "inbox");
+// The mailbox is read from .scrum.toml on every use, never once at load: the service outlives a
+// move of the mailbox, and on 2026-11-05 a path fixed at 11:55 kept writing to the old folder and
+// recreated it every minute after .scrum.toml changed at 12:54, while nobody watched the new one.
+const root = () => join(raizGestion(PROJECT), "inbox");
 const SCRIPT = process.env.INBOX_PY ||
   join(homedir(), ".claude/skills/scrum-kanban-agents/scripts/inbox.py");
 const WAKE = join(dirname(SCRIPT), "../adapters/opencode/wake.py");
@@ -38,24 +41,28 @@ function wake(file) {
   timers.set(m[1], setTimeout(() => {
     timers.delete(m[1]);
     try {
-      spawn("python3", [WAKE, ROOT, m[1]], { detached: true, stdio: "ignore" }).unref();
+      spawn("python3", [WAKE, root(), m[1]], { detached: true, stdio: "ignore" }).unref();
     } catch {}
   }, 2000));
+}
+
+function run(script, ...args) {
+  const r = root();
+  if (!existsSync(r)) return; // a stale mailbox: never recreate it
+  try { spawn("python3", [script, ...args, r], { detached: true, stdio: "ignore" }).unref(); } catch {}
 }
 
 function lanzarKick() {
   if (lanzarTimer) clearTimeout(lanzarTimer);
   lanzarTimer = setTimeout(() => {
     lanzarTimer = null;
-    try {
-      spawn("python3", [LANZAR, ROOT], { detached: true, stdio: "ignore" }).unref();
-    } catch {}
+    run(LANZAR);
   }, 800);
 }
 
 function pending() {
   try {
-    return execFileSync("python3", [SCRIPT, "pending", ROOT], { encoding: "utf8", timeout: 3000 }).trim();
+    return execFileSync("python3", [SCRIPT, "pending", root()], { encoding: "utf8", timeout: 3000 }).trim();
   } catch {
     return "";
   }
@@ -64,22 +71,27 @@ function pending() {
 export default {
   id: "scrum-kanban-agents.inbox",
   setup: async (api) => {
-    try {
-      watch(ROOT, (_, file) => wake(file));
-    } catch {} // no inbox/ yet: nothing to wake
-    // Lanzador: observa inbox/.lanzar/
-    try {
-      const qdir = join(ROOT, ".lanzar");
-      if (existsSync(qdir)) watch(qdir, () => lanzarKick());
-      else watch(ROOT, (_, file) => { if (file === ".lanzar") lanzarKick(); });
-      // intento inicial por si quedó cola de antes del reinicio
-      lanzarKick();
-      // reintento periódico: el intervalo reevalúa topes liberados
-      setInterval(() => { try { spawn("python3", [LANZAR, ROOT], { detached: true, stdio: "ignore" }).unref(); } catch {} }, 60_000);
-      // Cada minuto: si un dev terminó y no le escribió a su PM, wake.py le avisa al PM (una vez
-      // por sesión). El PM no espera al dev ni revisa nada: lo despierta el aviso.
-      setInterval(() => { try { spawn("python3", [WAKE, "--reap", ROOT], { detached: true, stdio: "ignore" }).unref(); } catch {} }, 60_000);
-    } catch {}
+    // Watch the mailbox and its launch queue; every minute re-read .scrum.toml and re-arm the
+    // watchers if the mailbox moved. A folder that does not exist is not watched or written.
+    let armed = null, watchers = [];
+    const arm = () => {
+      const r = root();
+      if (r === armed) return;
+      for (const w of watchers) try { w.close(); } catch {}
+      watchers = [];
+      armed = existsSync(r) ? r : null;
+      if (!armed) return;
+      try { watchers.push(watch(r, (_, file) => { wake(file); if (file === ".lanzar") lanzarKick(); })); } catch {}
+      const qdir = join(r, ".lanzar");
+      try { if (existsSync(qdir)) watchers.push(watch(qdir, () => lanzarKick())); } catch {}
+      lanzarKick(); // a queue left from before the restart or the move
+    };
+    arm();
+    setInterval(() => {
+      arm();
+      run(LANZAR);           // the retry re-evaluates freed caps
+      run(WAKE, "--reap");   // a dev finished without writing to its PM: wake.py tells the PM, once
+    }, 60_000);
     await api.session.hook("context", async (req) => {
       try {
         const last = req.messages?.at(-1);
