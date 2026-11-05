@@ -29,6 +29,8 @@ lines of work; `references/focus-log.md`).
 - The `updated` time comes from `date`, never from memory.
 - One row change to `in progress` corresponds to one dev session. A session never moves two rows.
 - Deferred tickets stay visible in the table, marked `deferred (<why>)`, so nobody picks them up.
+- The `Ticket` column holds **only `ID` + short title** (one phrase, no bitácora, no hashes, no counts, no gates). The bitácora lives in `reports/<ID>.md`. This is new in SKILL-E: old rows with long bitácora stay as-is, new rows follow this rule.
+- Every ticket file (`epic-*/tickets/<ID>.md`) starts with `**Resumen:** …` right after the title `# <ID> · …`: one or two plain sentences saying **what the ticket asks for**, no paths, hashes, decision IDs or state, at most **240 characters**, written by the PM when creating the ticket and never changed with progress. The only reader is `scripts/resumen.py` (uses `gestion.raiz_gestion`, ORDEN-3). `check` lists open tickets (`pending`/`in progress`/`reported`/`returned` in `STATUS*.md`) without a resumen or that exceed the limit (warns, never breaks). `json` exposes `id → {resumen|null, ruta}` for the board. Hook proposal: run `check` where the PM creates tickets; PM-calidad decides where to wire it.
 
 ## Lanes
 

@@ -61,6 +61,7 @@ pending → in progress → reported → closed
 - Each dev edits only its own row on the board.
 - A return goes to a **new dev session**, with a self-contained prompt that lists only what must be
   fixed (`references/prompts.md`).
+- **Resumen.** Cada ticket (`epic-*/tickets/<ID>.md`) abre con `**Resumen:** …` justo después del título: una o dos frases en lenguaje llano que digan **qué pide**, sin rutas, hashes, IDs ni estado, máximo **240 caracteres**. Lo escribe el **PM al crear el ticket** y **no cambia con el avance**; el estado vive en `STATUS.md`. La columna `Ticket` de `STATUS.md` lleva solo `ID` + título corto; la bitácora va en `reports/<ID>.md`. Lector único `scripts/resumen.py get <ID>` / `from resumen import leer_resumen` (usa `gestion.raiz_gestion`, ORDEN-3) y `json` para el tablero (`id → resumen|null + ruta`); `check` lista abiertos sin resumen o que exceden el tope (avisa, no rompe). Hook propuesto donde el PM crea tickets; PM-calidad decide.
 - **One session, one task.** A session ends when its task's report is written. The next task,
   even for the same agent, starts a new session (rule 8).
 

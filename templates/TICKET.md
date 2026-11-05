@@ -1,5 +1,7 @@
 # <ID> · <Title: what works when this closes>
 
+**Resumen:** Una o dos frases en lenguaje llano que digan qué pide el ticket, sin rutas, hashes, IDs ni estado. Máximo 240 caracteres. No cambia con el avance; el estado vive en STATUS.md.
+
 Epic <NAME> · Lane **<LANE>** · Agent: **<agent>** · Depends on: <ID> closed ✓ · Decided by: <human, date>
 
 ## Why
