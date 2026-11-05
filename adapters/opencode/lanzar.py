@@ -4,9 +4,8 @@
 Vive en el plugin (inbox.js lo arranca) porque un proceso desacoplado lanzado
 desde el shell del PM no sobrevive al turno.
 
-Topes (decisión del dueño):
-  MAX_PER_PM = 1 dev por PM (igual que hoy, el PM gana capacidad mientras su dev trabaja)
-  MAX_GLOBAL = 4 devs en la máquina
+Tope (decisión del dueño): MAX_GLOBAL = 4 devs en la máquina. Sin tope por PM (2026-11-05):
+un PM puede tener varios devs a la vez mientras quepan en el global.
 Subir el tope es decisión del dueño con medición en mano (epic-calidad/medicion/medir-agentes.py).
 
 Cola: inbox/.lanzar/*.json (cada uno es un pedido de inbox.py lanzar).
@@ -35,7 +34,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
 
-MAX_PER_PM = 1
 MAX_GLOBAL = 4
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
 
@@ -156,18 +154,16 @@ def try_launch_one(
     q = _load_queue(root)
     if not q:
         return None
-    gcount, pcounts, _ = _active_counts(root, db_path)
+    gcount, _, _ = _active_counts(root, db_path)
     # also reap failed sessions that died without report
     _reap_failed(root, db_path)
     # recount after reap
-    gcount, pcounts, _ = _active_counts(root, db_path)
+    gcount, _, _ = _active_counts(root, db_path)
     paused = inbox.pause(root)
     for entry in q:
         pm = entry.get("pm", "")
         if paused and pm != paused["owner"]:
             continue  # queued, not lost: it goes when the pause is lifted
-        if pcounts.get(pm, 0) >= MAX_PER_PM:
-            continue
         if gcount >= MAX_GLOBAL:
             break  # global lleno: nada más cabe (FIFO estricto si cabeza bloquea global)
             # pero si permitimos saltar, usar continue; elegimos FIFO estricto para simplicidad

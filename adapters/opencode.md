@@ -99,5 +99,5 @@ of a call from `$.state.content`. Tested on opencode 2.2.5 (2026-11-04): on SIM-
   fijar el padre; la trazabilidad dev→PM queda en `<buzón>/.lanzar/log` y en el título `dev <ticket>`
   (que `medir-agentes.py` ya reconoce). El PM encola con `inbox.py lanzar` que escribe en
   `<buzón>/.lanzar/`; `inbox.js` observa esa carpeta y arranca `adapters/opencode/lanzar.py` en el
-  servicio, que respeta los topes (1 por PM, 4 global) y la cola FIFO, y encola el aviso de falla si
+  servicio, que respeta el tope global (4, sin tope por PM) y la cola FIFO, y encola el aviso de falla si
   el dev muere sin reportar. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira <buzón>/.lanzar/log` (D-285) y un candado verifica que dos `lanzar` seguidos del mismo ticket generen un solo pedido. No toques `<buzón>/.lanzar/` a mano.

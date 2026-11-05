@@ -99,43 +99,42 @@ class LanzarTest(unittest.TestCase):
         self.assertEqual(lines[0]["session"], "ses_one")
         self.assertEqual(lines[0]["ticket"], "CAL-99")
 
-    def test_pedido_sobre_tope_queda_en_cola_y_se_lanza_en_orden(self):
-        # limit 1 per PM: enqueue 2 for same PM, only first launches, second stays
-        pr1 = self._prompt("TO: dev CAL-10\none")
-        pr2 = os.path.join(self.tmp.name, "prompt2.md")
-        with open(pr2, "w", encoding="utf-8") as f:
-            f.write("TO: dev CAL-11\ntwo")
-        inbox.lanzar(self.root, "PM-calidad", "CAL-10", pr1)
-        # tiny delay to ensure mtime order
+    def test_un_pm_lanza_varios_devs_y_solo_el_global_encola(self):
+        # 2026-11-05 el dueño quitó el tope por PM: un segundo dev del mismo PM sale con el primero
+        # vivo; lo único que encola es MAX_GLOBAL, en orden FIFO.
         import time
-
-        time.sleep(0.01)
-        inbox.lanzar(self.root, "PM-calidad", "CAL-11", pr2)
-        # first launch
-        runner1 = self._runner_once("ses_10")
-        sid1 = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner1, db_path=self.db)
-        self.assertEqual(sid1, "ses_10")
-        # make session busy: insert into DB as busy
-        con = sqlite3.connect(self.db)
-        con.execute("insert into session_v2 values (?,?,?,?)", ("ses_10", "dev CAL-10", 2, 1))
-        con.commit()
-        con.close()
-        # second try should not launch because per-PM limit (1) reached
-        runner2 = self._runner_once("ses_11")
-        sid2 = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner2, db_path=self.db)
-        self.assertIsNone(sid2)
-        self.assertEqual(len(runner2.__self__.calls) if hasattr(runner2, "__self__") else 0, 0)  # no call
-        # queue still has CAL-11
-        qfiles = glob.glob(os.path.join(self.root, ".lanzar", "*.json"))
-        self.assertEqual(len(qfiles), 1)
-        self.assertIn("CAL-11", open(qfiles[0], encoding="utf-8").read())
-        # free slot: mark ses_10 idle
-        con = sqlite3.connect(self.db)
-        con.execute("update session_v2 set time_busy=1, time_idle=2 where id='ses_10'")
-        con.commit()
-        con.close()
-        sid3 = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner2, db_path=self.db)
-        self.assertEqual(sid3, "ses_11")
+        prompts = []
+        for n in (10, 11, 12):
+            pr = os.path.join(self.tmp.name, f"prompt{n}.md")
+            with open(pr, "w", encoding="utf-8") as f:
+                f.write(f"TO: dev CAL-{n}\nx")
+            inbox.lanzar(self.root, "PM-calidad", f"CAL-{n}", pr)
+            time.sleep(0.01)
+        self.assertFalse(hasattr(lanzar, "MAX_PER_PM"))
+        old = lanzar.MAX_GLOBAL
+        lanzar.MAX_GLOBAL = 2
+        try:
+            for n in (10, 11):
+                sid = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode",
+                                            runner=self._runner_once(f"ses_{n}"), db_path=self.db)
+                self.assertEqual(sid, f"ses_{n}")
+                con = sqlite3.connect(self.db)
+                con.execute("insert into session_v2 values (?,?,?,?)", (f"ses_{n}", f"dev CAL-{n}", 2, 1))
+                con.commit()
+                con.close()
+            self.assertIsNone(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode",
+                                                    runner=self._runner_once("ses_12"), db_path=self.db))
+            qfiles = glob.glob(os.path.join(self.root, ".lanzar", "*.json"))
+            self.assertEqual(len(qfiles), 1)
+            self.assertIn("CAL-12", open(qfiles[0], encoding="utf-8").read())
+            con = sqlite3.connect(self.db)
+            con.execute("update session_v2 set time_busy=1, time_idle=2 where id='ses_10'")
+            con.commit()
+            con.close()
+            self.assertEqual(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode",
+                                                   runner=self._runner_once("ses_12"), db_path=self.db), "ses_12")
+        finally:
+            lanzar.MAX_GLOBAL = old
 
     def test_dev_que_termina_sin_mensaje_deja_aviso_al_pm(self):
         # enqueue and launch, then simulate failed session

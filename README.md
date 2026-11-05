@@ -35,7 +35,7 @@ codebase, and it records what was needed to trust their work.
   turn, the PM acks after acting, and `inbox.py check` flags what was left unread. In opencode a
   message also wakes an idle PM (`adapters/opencode/wake.py`, capped at 40 wakes per PM per hour).
 - **The PM never waits on its dev.** The PM queues a dev with `inbox.py lanzar`, and the opencode
-  plugin starts it in the background (one dev per PM, four per machine). When the dev finishes,
+  plugin starts it in the background (up to four devs per machine, no per-PM cap). When the dev finishes,
   the PM gets a message, whether or not the dev wrote one.
 - **The shared checkout is protected.** `adapters/opencode/guard.js` refuses `git stash`,
   `checkout`/`restore`, `reset --hard`, `clean -f`, `add -A` and `commit -a`/`--amend` in the

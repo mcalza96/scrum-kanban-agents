@@ -75,8 +75,8 @@ in one place.
 El PM encola devs con `inbox.py lanzar inbox/ --pm PM-x --ticket CAL-n --prompt <ruta>` en
 `inbox/.lanzar/`; el plugin del servicio los lanza con `opencode run --title "dev <ticket>"`.
 `inbox/.lanzar/log` guarda la trazabilidad (pm, ticket, session, prompt); el título `dev <ticket>`
-permite a `medir-agentes.py` distinguir devs de PMs. Topes: 1 dev por PM y 4 en la máquina
-(`adapters/opencode/lanzar.py: MAX_PER_PM / MAX_GLOBAL`), en cola FIFO. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira inbox/.lanzar/log` (D-285). No toques `inbox/.lanzar/` a mano.
+permite a `medir-agentes.py` distinguir devs de PMs. Tope: 4 devs en la máquina, sin tope por PM
+(`adapters/opencode/lanzar.py: MAX_GLOBAL`), en cola FIFO. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira inbox/.lanzar/log` (D-285). No toques `inbox/.lanzar/` a mano.
 
 ## Sync
 
