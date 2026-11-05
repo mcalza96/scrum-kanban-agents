@@ -132,101 +132,40 @@ class WakeTest(unittest.TestCase):
         self.assertEqual(len(texts), 2)  # M-3 arrived during the M-2 turn: one more
         self.assertIn("(M-1, M-2, M-3)", texts[1])
 
-    def test_avisos_wait_the_hold_and_a_bloqueo_does_not(self):
-        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
-        def msg(text, minute):
-            sent = now.replace(minute=minute).strftime(inbox.FMT)
+    def test_the_po_debounces_120s_whatever_the_tag(self):
+        # Dueño 2026-11-05: «si, estoy de acuerdo» a «todo mensaje despierta al PO tras 2 min (debounce
+        # 120 s, se juntan los de la ventana). Sin HOLD, sin URGENT, sin distinción por etiqueta».
+        self.assertEqual(wake.DEBOUNCE, {"PO": 120})
+        now = inbox.datetime.datetime(2026, 11, 5, 12, 20, 0).astimezone()
+        def msg(text, ago):
+            sent = (now - inbox.datetime.timedelta(seconds=ago)).strftime(inbox.FMT)
             return inbox.Message("M-1", "PM-ui", sent, text, "unread")
-        self.assertAlmostEqual(wake.held([msg("listo", 15)], 900, now), 600)  # 5 of 15 min waited
-        self.assertEqual(wake.held([msg("listo", 1)], 900, now), 0)  # waited the whole hold
-        self.assertEqual(wake.held([msg("listo", 19), msg("[bloqueo] sin base", 19)], 900, now), 0)
-        self.assertEqual(wake.held([msg("[Decisión] elige", 19)], 900, now), 0)
-        self.assertEqual(wake.held([msg("listo", 19)], 0, now), 0)  # a mailbox without a hold
+        for text in ("[listo] SIM-1", "[aviso] rutina", "[bloqueo] sin base", "[encargo] haz X", "sin tag"):
+            self.assertAlmostEqual(wake.held([msg(text, 60)], 120, now), 60)   # same wait for every tag
+            self.assertEqual(wake.held([msg(text, 120)], 120, now), 0)         # the window closed
+        self.assertEqual(wake.held([msg("x", 0), msg("y", 180)], 120, now), 0)  # the oldest decides
+        self.assertEqual(wake.held([msg("x", 0)], 0, now), 0)                   # no debounce: at once
+        self.assertFalse(hasattr(wake, "HOLD") or hasattr(wake, "URGENT"))      # no tag rule comes back
 
-    def test_encargo_wakes_at_once_CAL28(self):
-        # CAL-28: [encargo] reemplaza [decision] y despierta al tiro (URGENT)
-        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
-        def msg(text, minute):
-            sent = now.replace(minute=minute).strftime(inbox.FMT)
-            return inbox.Message("M-1", "PM-ui", sent, text, "unread")
-        # Si URGENT no incluye encargo, held devolvería >0 y el test falla
-        self.assertEqual(wake.held([msg("[encargo] avanza tus pending", 19)], 900, now), 0)
-        self.assertEqual(wake.held([msg("[ENCARGO] haz el cierre", 19)], 900, now), 0)
-        self.assertIsNotNone(wake.URGENT.match("[encargo] haz esto"))
-        self.assertIsNotNone(wake.URGENT.search("[encargo] haz esto"))
-        # Prueba de que falla sin el cambio: si se borra encargo de URGENT, held sería 900-120=780
-        self.assertTrue(wake.held([msg("[encargo] test", 19)], 900, now) == 0,
-                        "CAL-28: [encargo] debe despertar al tiro")
-
-    def test_decision_still_alias_CAL28(self):
-        # CAL-28: [decision] sigue como alias de [encargo] y despierta al tiro
-        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
-        def msg(text, minute):
-            sent = now.replace(minute=minute).strftime(inbox.FMT)
-            return inbox.Message("M-1", "PM-ui", sent, text, "unread")
-        self.assertEqual(wake.held([msg("[decision] elige opción A o B", 19)], 900, now), 0)
-        self.assertEqual(wake.held([msg("[decisión] elige", 19)], 900, now), 0)
-        self.assertEqual(wake.held([msg("[DECISION] elige", 19)], 900, now), 0)
-        self.assertIsNotNone(wake.URGENT.match("[decision] haz esto"))
-        self.assertIsNotNone(wake.URGENT.match("[decisión] haz esto"))
-        # Si se quita decisi[oó]n de URGENT, estos held serían >0 y el test falla
-
-    def test_aviso_citing_pending_encargo_wakes_at_once_M83(self):
-        # M-83: [aviso] que cita M-número de un [encargo] pendiente despierta al tiro aunque sea aviso
-        # M-723 (respuesta a mi encargo M-82) quedó held 15 min por tag [aviso]
-        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
-        def msg(mid, text, minute):
-            sent = now.replace(minute=minute).strftime(inbox.FMT)
-            return inbox.Message(mid, "PO", sent, text, "unread")
-        # caso normal: aviso sin cita sigue held (5 min de 15)
-        self.assertAlmostEqual(wake.held([msg("M-82", "[encargo] M-82 gate paralelo", 19), msg("M-83", "[aviso] rutina sin cita", 19)], 900, now), 0)  # encargo presente -> ya 0 por URGENT
-        # solo aviso con cita a encargo pendiente debe despertar aunque no haya otro urgent
-        # simulamos dos mensajes: encargo M-82 y aviso M-723 que cita M-82
-        pending = msg("M-82", "[encargo] M-82 gate paralelo", 19)
-        citing = msg("M-723", "[aviso] M-723 (respuesta a mi encargo M-82) inventario listo", 19)
-        # sin el parche M-83, held([aviso citando]) sería 600 (held), con parche 0
-        self.assertEqual(wake.held([pending, citing], 900, now), 0)
-        self.assertEqual(wake.held([citing, pending], 900, now), 0)
-        # cross-buzón: solo el aviso citando encargo + M debe despertar aunque el encargo no esté en esta lista
-        solo_citing = msg("M-723", "[aviso] M-723 (respuesta a mi encargo M-82) inventario listo", 19)
-        self.assertEqual(wake.held([solo_citing], 900, now), 0)
-        # aviso que cita M inexistente sigue held (1 min de 15, queda 840)
-        routine = msg("M-99", "[aviso] M-99 rutina normal sin cita relevante", 19)
-        self.assertAlmostEqual(wake.held([routine], 900, now), 840)
-        # aviso que cita M pero sin palabra encargo sigue held (rutina)
-        self.assertAlmostEqual(wake.held([msg("M-10", "[aviso] M-10 referencia a M-82 sin palabra clave", 19)], 900, now), 840)
-        self.assertIsNotNone(wake.M_CITE_RE.search("M-82"))
-
-    def test_M85_hold_10min_y_cita_para_todos_los_PM(self):
-        # M-85: HOLD PO de 15 a 10 min, y parche reply-to-encargo aplica a TODOS los PMs
-        self.assertEqual(wake.HOLD.get("PO"), 10 * 60)
-        # sin el fix HOLD sería 900 y este held sería 840; con fix 600
-        now = inbox.datetime.datetime(2026, 11, 3, 14, 20).astimezone()
-        def msg_pm(pm, mid, text, minute):
-            sent = now.replace(minute=minute).strftime(inbox.FMT)
-            return inbox.Message(mid, pm, sent, text, "unread")
-        # para PO con hold 10 min, aviso rutina 1 min queda 540
-        self.assertAlmostEqual(wake.held([msg_pm("PO", "M-1", "[aviso] rutina", 19)], wake.HOLD.get("PO", 0), now), 540)
-        # para PM-ui con hold simulado 10 min, cita encargo+M debe despertar (aplica a todos, no solo PO)
-        citing_ui = msg_pm("PM-ui", "M-723", "[aviso] M-723 (respuesta a mi encargo M-82) listo", 19)
-        self.assertEqual(wake.held([citing_ui], 10 * 60, now), 0)
-        # rutina sin cita sigue held 540 con hold 10 (sin cambiar cadencia rutina)
-        routine_ui = msg_pm("PM-ui", "M-99", "[aviso] rutina normal", 19)
-        self.assertAlmostEqual(wake.held([routine_ui], 10 * 60, now), 540)
-
-    def test_the_po_holds_avisos_until_a_bloqueo_arrives(self):
+    def test_the_po_wakes_once_for_the_whole_window(self):
         self.session("ses_po", f"inbox.py read {self.root} PO", 1)
-        inbox.send(self.root, "PO", "PM-ui", "SIM-1 cerrado")
+        inbox.send(self.root, "PO", "PM-ui", "[listo] SIM-1")
+        clock = [inbox.datetime.datetime.now().astimezone()]
         slept = []
-        real = wake.time.sleep
-        wake.time.sleep = lambda s: slept.append(s) or (
-            len(slept) == 2 and inbox.send(self.root, "PO", "PM-ui", "[bloqueo] falta la base"))
+        real_sleep, real_now = wake.time.sleep, wake.now
+        def sleep(s):
+            slept.append(s)
+            clock[0] += inbox.datetime.timedelta(seconds=s)
+            if len(slept) == 1:
+                inbox.send(self.root, "PO", "PM-ui", "[bloqueo] falta la base")  # inside the window
+        wake.time.sleep, wake.now = sleep, lambda: clock[0]
         try:
-            wake.run(self.root, "PO", send=self.send, wait=0, poll=1)
+            wake.run(self.root, "PO", send=self.send, wait=0, poll=30)
         finally:
-            wake.time.sleep = real
-        self.assertEqual(len(self.sent), 1)  # one wake for both, right after the bloqueo
+            wake.time.sleep, wake.now = real_sleep, real_now
+        self.assertEqual(len(self.sent), 1)                 # one wake for both
         self.assertIn("(M-1, M-2)", self.sent[0][1])
+        self.assertLessEqual(sum(slept), 120 + 60)          # about two minutes, not ten
         with open(wake.log_path(self.root)) as f:
             self.assertEqual(sum(" PO held M-1" in line for line in f), 1)  # logged once
 
@@ -324,6 +263,48 @@ class WakeTest(unittest.TestCase):
         self.db.commit()
         self.assertEqual(self.nudge(13 * 60), [])             # idle 13 h: a retired PM
         self.assertEqual(self.sent, [])
+
+
+class RepoTest(unittest.TestCase):
+    """The CLI takes the repo and finds the mailbox; the repo of a moved mailbox is still the repo."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = os.path.realpath(os.path.join(self.tmp.name, "proj"))
+        os.makedirs(os.path.join(self.repo, ".git"))
+        os.makedirs(os.path.join(self.repo, "gestion", "inbox"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_mailbox_and_repo_follow_scrum_toml(self):
+        # 2026-11-05: ORDEN-4 movió inbox/ a gestion/ y el barrido de launchd, con la ruta vieja,
+        # recreó inbox/ en la raíz: nadie despertó y sus alarmas no las leyó nadie.
+        with open(os.path.join(self.repo, ".scrum.toml"), "w") as f:
+            f.write('gestion = "gestion"\n')
+        box = os.path.join(self.repo, "gestion", "inbox")
+        self.assertEqual(wake.mailbox_root(self.repo), box)
+        self.assertEqual(wake.mailbox_root(box), box)        # a mailbox path still works
+        self.assertEqual(wake.repo_of(box), self.repo)       # not gestion/, the folder above inbox
+
+    def test_activos_counts_only_recent_sessions_of_the_repo(self):
+        db_path = os.path.join(self.tmp.name, "oc.db")
+        db = sqlite3.connect(db_path)
+        db.execute("create table session_v2 (id text, title text, directory text, time_updated int,"
+                   " time_busy int, time_idle int)")
+        at = 1_000_000.0
+        rows = [("s1", "dev en subcarpeta", os.path.join(self.repo, "gestion"), at - 60, 2, 1),
+                ("s2", "PO", self.repo, at - 300, 1, 2),
+                ("s3", "viejo", self.repo, at - 3600, 1, 2),
+                ("s4", "otro proyecto", self.repo + "-otro", at - 10, 1, 2)]
+        db.executemany("insert into session_v2 values (?,?,?,?,?,?)",
+                       [(i, t, d, u * 1000, b, idle) for i, t, d, u, b, idle in rows])
+        db.commit()
+        db.close()
+        lines = wake.activos(self.repo, 10, db_path=db_path, at=at)
+        self.assertEqual([l.split()[-1] for l in lines], ["s1", "s2"])
+        self.assertIn("busy", lines[0])
+        self.assertIn("idle", lines[1])
 
 
 if __name__ == "__main__":

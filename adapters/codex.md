@@ -1,14 +1,14 @@
 # Codex como PO; PM y devs en opencode
 
 El transporte es el buzón de archivos existente. No hace falta un segundo servidor MCP.
-Codex conserva el nombre PO; los agentes siguen escribiendo en inbox/PO.md.
+Codex conserva el nombre PO; los agentes siguen escribiendo en `<buzón>/PO.md`.
 
 ## Cada turno
 
 1. Lee SKILL.md y el ancla vigente de focus/PROJECT.md.
-2. Ejecuta scripts/inbox.py read <repo>/inbox PO antes de actuar.
+2. Ejecuta scripts/inbox.py read <buzón> PO (hoy `<repo>/gestion/inbox`) antes de actuar.
 3. Revisa los STATUS y .wakes.log, contrasta los reportes y manda el siguiente turno
-   con scripts/inbox.py send <repo>/inbox --to PM-X --from PO <texto>.
+   con scripts/inbox.py send <buzón> --to PM-X --from PO <texto>.
 4. Haz ack únicamente de mensajes sobre los que ya actuaste. Una lectura no es ack.
 5. No repitas mutaciones de producción al comprobar evidencia; usa comprobaciones de lectura.
 
@@ -18,12 +18,12 @@ El plugin opencode puede seguir usando su instalación .claude; ambos leen el mi
 
 ## Recepción en el chat
 
-El puente `adapters/codex/wake.py` se ejecuta por launchd WatchPaths sobre inbox/PO.md.
+El puente `adapters/codex/wake.py` se ejecuta por launchd WatchPaths sobre `<buzón>/PO.md`.
 Usa la interfaz pública del CLI instalado: `codex queue --thread UUID --message TEXTO --resume`.
 El servidor local se inicia mediante `codex app-server daemon start` (idempotente), sin habilitar
 control remoto. No se cambia el watcher opencode ni se usa una API privada de Desktop.
 
-La configuración local pasa --root (inbox), --thread (este chat), --state (JSON fuera del repo)
+La configuración local pasa --root (el repo; el buzón sale de `.scrum.toml`), --thread (este chat), --state (JSON fuera del repo)
 y --codex (ruta absoluta del CLI). RunAtLoad permite recoger mensajes al iniciar sesión.
 El estado guarda IDs bajo flock; ack y reescrituras no reenvían mensajes ya encolados.
 El puente no hace ack. Los contenidos del buzón se leen con inbox.py, no se ejecutan como código.

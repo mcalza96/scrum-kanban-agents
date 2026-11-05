@@ -2,17 +2,24 @@
 """Wake an idle opencode PM when its mailbox gets a message (see references/inbox.md).
 
     wake.py inbox/ PM-ui         run by the opencode plugin (inbox.js) when a mailbox changes
-    wake.py --sweep inbox/       run every few minutes (launchd/cron): nudges idle PMs, and reaps
+    wake.py --sweep <repo>       run every few minutes (launchd/cron): nudges idle PMs, and reaps
                                  the repo's stale worktrees and idle agent postgres
-    wake.py --reap inbox/        run every minute by inbox.js: tells each PM that a dev of theirs
+    wake.py --reap <repo>        run every minute by inbox.js: tells each PM that a dev of theirs
                                  finished, unless the dev already wrote to them (reap_finished)
+    wake.py --activos <repo> [min]  the sessions with real activity in the last min minutes
+                                 (default 10): the only evidence that someone is working
+
+Every form takes the repo or the mailbox folder. Given the repo (a folder with .git), the mailbox
+is found with gestion.inbox_root, so a launchd job never hard-codes where the mailbox lives. Why
+(2026-11-05): ORDEN-4 moved inbox/ to gestion/inbox/ and the sweep, still pointing at the old
+path, recreated inbox/ at the root: nobody woke for an hour and its alarms went unread.
 
 It finds the PM's session in opencode's database: the newest top-level session that ran
 `inbox.py read <root> PM-ui`. It waits until that session is idle, then sends it one turn with
 `opencode run --session` through the running service, so the turn shows live in the PM's window.
 
-- No cap on wakes (owner, 2026-11-04: «quita el límite de despertares»). The HOLD of avisos and
-  the busy check are what keep a session from being flooded.
+- No cap on wakes (owner, 2026-11-04: «quita el límite de despertares»). The debounce and the
+  busy check are what keep a session from being flooded.
 - One waker per PM at a time (a lock). It loops while new unread ids keep arriving, and never wakes
   for an id an earlier wake already announced (the log says which): a PM that read a message and
   is waiting on someone is left alone, and acks, which also change the mailbox, wake nobody.
@@ -24,13 +31,11 @@ It finds the PM's session in opencode's database: the newest top-level session t
   failed every wake for hours (the provider rejected their history with a 400) while the log said
   "woke" and "nudged", and 11 messages sat unread with nobody knowing.
 
-- Every message has a kind, the first word of its text: `[bloqueo]`, `[encargo]` (`[decision]`
-  es alias) or `[aviso]`; a message with none is an aviso. Un `[bloqueo]` o un `[encargo]`
-  despierta al tiro; `[decision]` se acepta como alias de `[encargo]`. A mailbox with a HOLD keeps
-  its avisos until the oldest has waited that long, then wakes once for all of them; the waker polls
-  meanwhile, so a bloqueo or an encargo that arrives during the hold still wakes at once. Why
-  (D-282, 2026-11-03): the PO got 196 messages from PMs in 24 h and 25 wakes in half an hour, nearly
-  all status echoes.
+- A mailbox with a DEBOUNCE wakes once, that many seconds after its oldest unread message, for
+  every message that arrived in the window, whatever its tag. Today only the PO has one: 120 s.
+  Why (owner, 2026-11-05: «si, estoy de acuerdo» to «todo mensaje despierta al PO tras 2 min»,
+  replacing D-282's 10-minute hold of avisos): PMs' [listo] waited up to 17 minutes to reach the
+  PO, 222 minutes in all on 2026-11-04, while two minutes still batch a burst into one wake.
 
 Every decision is one line in inbox/.wakes.log.
 
@@ -71,10 +76,7 @@ import stale_worktrees  # noqa: E402
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
 POLL = 20
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
-HOLD = {"PO": 10 * 60}  # seconds a mailbox keeps its avisos before waking (owner decision)
-URGENT = re.compile(r"\s*\[(bloqueo|encargo|decisi[oó]n)\]", re.IGNORECASE)
-# si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro aunque sea aviso
-M_CITE_RE = re.compile(r"\bM-(\d+)\b")
+DEBOUNCE = {"PO": 120}  # seconds after its oldest unread that a mailbox wakes (owner, 2026-11-05)
 IDLE = 20 * 60
 STALE = 12 * 3600
 # A dev that delivered without telling its PM is news only while fresh. The plugin checks every
@@ -133,28 +135,28 @@ def woken_ids(root: str, pm: str, sid: str) -> set[str]:
     return ids
 
 
-def held(msgs: list, hold: float, now: datetime.datetime) -> float:
-    """Seconds left before msgs must wake: 0 when one is urgent or the oldest waited hold."""
-    if not hold or any(URGENT.match(m.text) for m in msgs):
-        return 0.0
-    # si un [aviso] cita M-número de un [encargo] pendiente del PO, despierta al tiro
-    # aunque el tag sea [aviso]; no cambia cadencia de avisos rutinarios sin cita
-    # [aviso] M-723 (respuesta a mi encargo M-82) quedó held 15 min por tag [aviso]
-    # Detecta cita con "encargo" + M-número, aunque el encargo citado no esté en esta misma lista
-    # (está en otro buzón del PO), y también el caso intra-buzón.
-    pending_encargo_ids = {m.id for m in msgs if URGENT.match(m.text)}
-    for m in msgs:
-        if URGENT.match(m.text):
-            continue
-        # intra-buzón: cita a un [encargo] presente en este lote
-        for cited in M_CITE_RE.findall(m.text):
-            if f"M-{cited}" in pending_encargo_ids:
-                return 0.0
-        # cross-buzón: [aviso] que menciona encargo + M-número (ej. "respuesta a mi encargo M-82")
-        if M_CITE_RE.search(m.text) and re.search(r"encargo", m.text, re.IGNORECASE):
-            return 0.0
-    ages = [inbox.age_hours(m.sent, now) for m in msgs]
-    return max(0.0, hold - max((a or 0.0) * 3600 for a in ages))
+def held(msgs: list, debounce: float, now: datetime.datetime) -> float:
+    """Seconds left before msgs wake: debounce minus the age of the oldest, never below 0."""
+    ages = [(inbox.age_hours(m.sent, now) or 0.0) * 3600 for m in msgs]
+    return max(0.0, debounce - max(ages, default=debounce))
+
+
+def now() -> datetime.datetime:
+    return datetime.datetime.now().astimezone()
+
+
+def repo_of(root: str) -> str:
+    """The repo that holds a mailbox folder: the nearest folder up with a .git."""
+    d = os.path.abspath(root)
+    while not os.path.exists(os.path.join(d, ".git")) and os.path.dirname(d) != d:
+        d = os.path.dirname(d)
+    return d if os.path.exists(os.path.join(d, ".git")) else os.path.dirname(os.path.abspath(root))
+
+
+def mailbox_root(arg: str) -> str:
+    """The mailbox folder for a CLI argument that is either the repo or the mailbox itself."""
+    arg = os.path.abspath(arg)
+    return gestion.inbox_root(arg) if os.path.exists(os.path.join(arg, ".git")) else arg
 
 
 def addressee(db: sqlite3.Connection, sid: str) -> str | None:
@@ -513,7 +515,7 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     # 5) inferir del ticket en STATUS
     ticket = _ticket_from_title(title) or _ticket_from_prompt(db, sid)
     if ticket:
-        gr = gestion.raiz_gestion(os.path.dirname(os.path.abspath(root)))
+        gr = gestion.raiz_gestion(repo_of(root))
         for pat in [os.path.join(gr, "epic-*", "STATUS.md"),
                     os.path.join(gr, "epic-*", "STATUS-*.md")]:
             for path in glob.glob(pat):
@@ -544,7 +546,7 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
         return []
     aviso_path = os.path.join(root, ".lanzar", ".aviso-dev")
     os.makedirs(os.path.dirname(aviso_path), exist_ok=True)
-    repo = os.path.dirname(os.path.abspath(root))
+    repo = repo_of(root)
     done: list[str] = []
     # filtros solo lanzar/log y ventana
     log_sids = _load_log_sids(root)
@@ -685,7 +687,7 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
 
 def reap(root: str, older: float = 24.0) -> list[str]:
     """Reap the stale worktrees and idle postgres of the repo that holds root; log what it did."""
-    repo = os.path.dirname(root)
+    repo = repo_of(root)
     lines = stale_worktrees.reap(repo, "main", stale_worktrees.in_use(), older)
     lines += stale_worktrees.stop_postgres(stale_worktrees.PG_ROOT, older)
     for line in lines:
@@ -729,10 +731,10 @@ def _loop(db, root, pm, wait, poll, send) -> str:
         if not new:
             what = "nothing new unread"
             break
-        left = held(new, HOLD.get(pm, 0), datetime.datetime.now().astimezone())
+        left = held(new, DEBOUNCE.get(pm, 0), now())
         if left:
             if not holding:
-                log(root, pm, f"held {' '.join(m.id for m in new)}: avisos, wake in {left / 60:.0f} min")
+                log(root, pm, f"held {' '.join(m.id for m in new)}: debounce, wake in {left:.0f} s")
                 holding = True
             time.sleep(min(poll, left))
             continue
@@ -753,28 +755,68 @@ def _loop(db, root, pm, wait, poll, send) -> str:
     return what
 
 
+def _inside(path: str, top: str) -> bool:
+    path = os.path.realpath(path)
+    return path == top or path.startswith(top + os.sep)
+
+
+def worktrees(repo: str) -> list[str]:
+    """The repo's other worktrees: a dev launched in one still works for this repo."""
+    out = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"],
+                         capture_output=True, text=True).stdout
+    return [os.path.realpath(line[9:]) for line in out.splitlines()
+            if line.startswith("worktree ")][1:]
+
+
+def activos(repo: str, minutes: float = 10, db_path: str = DB, at: float | None = None) -> list[str]:
+    """One line per session of repo with activity in the last minutes, newest first.
+
+    The evidence that someone is working is the session's own last activity, not a claim, a
+    mailbox or a PID. Why (2026-11-05): the PO told the owner a dev was working, citing a claim in
+    `pending` and a PID that did not exist, while the dev had finished an hour before.
+    """
+    at = time.time() if at is None else at
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = db.execute("select id, title, time_updated, directory from session_v2"
+                          " where time_updated >= ? order by time_updated desc",
+                          ((at - minutes * 60) * 1000,)).fetchall()
+        places = [os.path.realpath(repo)] + worktrees(repo)
+        return [f"{datetime.datetime.fromtimestamp(t / 1000).strftime('%H:%M:%S')}"
+                f"  hace {(at - t / 1000) / 60:4.1f} min  {'busy' if busy(db, sid) else 'idle'}"
+                f"  {title}  {sid}" for sid, title, t, d in rows
+                if any(_inside(d or "", p) for p in places)]
+    finally:
+        db.close()
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) in (2, 3) and argv[0] == "--activos":
+        repo = repo_of(argv[1])
+        mins = float(argv[2]) if len(argv) == 3 else 10
+        print("\n".join(activos(repo, mins)) or f"nadie con actividad en los últimos {mins:g} min")
+        return 0
     if len(argv) == 2 and argv[0] == "--sweep":
-        root = os.path.abspath(argv[1])
+        root = mailbox_root(argv[1])
         print("\n".join(sweep(root)) or "nobody idle")
         print("\n".join(reap(root)))
-        for line in archivar.archive(os.path.dirname(root)):
+        for line in archivar.archive(repo_of(root)):
             log(root, "archivo", line)
             print(line)
         return 0
     if len(argv) == 2 and argv[0] == "--reap":
-        for line in reap_finished(os.path.abspath(argv[1])):
-            log(os.path.abspath(argv[1]), "aviso-dev", line)
+        root = mailbox_root(argv[1])
+        for line in reap_finished(root):
+            log(root, "aviso-dev", line)
             print(line)
         return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
-    root, pm = os.path.abspath(argv[0]), argv[1]
+    root, pm = mailbox_root(argv[0]), argv[1]
     inbox.path_of(root, pm)  # validates the name
     print(run(root, pm))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

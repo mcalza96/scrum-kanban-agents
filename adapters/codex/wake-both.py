@@ -55,7 +55,7 @@ def _wake_mailbox(root: str, cfg: dict, **kw):
                                  "--state", str(state), "--codex", cfg["codex"],
                                  "--complete", "--observed"])
         prompt = ("Evento del buzón opencode: hay mensajes nuevos para " + cfg["mailbox"] +
-                  " (" + ", ".join(fresh) + "). Lee inbox/" + cfg["mailbox"] + ".md con inbox.py read, "
+                  " (" + ", ".join(fresh) + "). Lee " + str(root) + "/" + cfg["mailbox"] + ".md con inbox.py read, "
                   "verifica y actúa según la skill scrum-kanban-agents. Haz ack después de actuar. "
                   "Conserva el trabajo en curso. Este evento no autoriza push, deploy ni mutaciones de producción. "
                   "Antes de terminar, relee el buzón y ejecuta " + completion +
@@ -84,6 +84,9 @@ if __name__ == "__main__":
     ap.add_argument("--state", required=False, default="")
     ap.add_argument("--codex", required=False, default=PO_CFG["codex"])
     a = ap.parse_args()
+    if (Path(a.root) / ".git").exists():  # el repo: el buzón sale de .scrum.toml
+        import gestion
+        a.root = gestion.inbox_root(a.root)
     # When called with --complete, we need to know which mailbox; use state path to infer
     if a.complete and a.state:
         # reverse lookup

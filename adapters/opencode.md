@@ -96,8 +96,8 @@ of a call from `$.state.content`. Tested on opencode 2.2.5 (2026-11-04): on SIM-
 - **Lanzador de devs (CAL-25).** `opencode run --title "dev <ticket>"` crea la sesión del dev;
   flags `--model` y `--agent` fijan el modelo/agente si hiciera falta (verificados con
   `opencode run --help`), pero por defecto se usan los del servicio. No hay flag `--parent` para
-  fijar el padre; la trazabilidad dev→PM queda en `inbox/.lanzar/log` y en el título `dev <ticket>`
+  fijar el padre; la trazabilidad dev→PM queda en `<buzón>/.lanzar/log` y en el título `dev <ticket>`
   (que `medir-agentes.py` ya reconoce). El PM encola con `inbox.py lanzar` que escribe en
-  `inbox/.lanzar/`; `inbox.js` observa esa carpeta y arranca `adapters/opencode/lanzar.py` en el
+  `<buzón>/.lanzar/`; `inbox.js` observa esa carpeta y arranca `adapters/opencode/lanzar.py` en el
   servicio, que respeta los topes (1 por PM, 4 global) y la cola FIFO, y encola el aviso de falla si
-  el dev muere sin reportar. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira inbox/.lanzar/log` (D-285) y un candado verifica que dos `lanzar` seguidos del mismo ticket generen un solo pedido. No toques `inbox/.lanzar/` a mano.
+  el dev muere sin reportar. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira <buzón>/.lanzar/log` (D-285) y un candado verifica que dos `lanzar` seguidos del mismo ticket generen un solo pedido. No toques `<buzón>/.lanzar/` a mano.

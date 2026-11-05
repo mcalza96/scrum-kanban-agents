@@ -234,7 +234,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
 | `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind (removable, dirty, ahead, in use); `--reap` removes the stale ones, saving their work as `conserva/wt-<name>`, and stops idle agent postgres |
 | `adapters/opencode/inbox.js` | Plugin: unread mail in every PM turn; wakes idle PMs on new mail; runs the launcher and the dev-finished check every minute |
-| `adapters/opencode/wake.py` | Wakes a PM for its mail (`[bloqueo]`/`[encargo]` at once, `[aviso]` held); `--reap` tells a PM its dev finished; `--sweep` (launchd, 15 min) nudges idle PMs, reaps stale worktrees, runs `archivar.py` |
+| `adapters/opencode/wake.py` | Wakes a PM for its mail (the PO once per 120 s window, everyone else at once); `--reap` tells a PM its dev finished; `--sweep <repo>` (launchd, 5 min) nudges idle PMs, reaps stale worktrees, runs `archivar.py`; `--activos <repo>` lists sessions with real activity, the only evidence that someone is working |
 | `adapters/opencode/lanzar.py` | The launcher: starts queued dev sessions with `opencode run`, 1 per PM and 4 per machine, and tells the PM when one fails |
 | `adapters/opencode/guard.js` | Plugin: blocks sleep loops, `kill` of processes the session did not start, and git that touches others' work in the shared checkout (rule 12) |
 | `adapters/codex/`, `adapters/codex.md` | Waking a Codex session from its mailbox |

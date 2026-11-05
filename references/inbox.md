@@ -93,12 +93,10 @@ human writes to it, so a message that unblocks it would wait for the human anywa
   findable after its first read), waits up to 30 minutes for it to be idle, and sends it one turn
   that says to read the mailbox. The turn shows live in the PM's window. It does not pass
   `--auto`: permission prompts still go to the human.
-- **Avisos to a mailbox with a hold wait.** `HOLD` in `wake.py` (today only `PO`, 10 minutes) keeps
-  avisos until the oldest has waited that long, then wakes once for all of them. The waker polls
-  meanwhile, so a `[bloqueo]` o un `[encargo]` (`[decision]` es alias) que llegue durante la espera
-  despierta al tiro.
-- **At most 40 wakes per PM per rolling hour.** Past that the message waits for the human. No id
-  wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
+- **A mailbox with a debounce wakes once per window.** `DEBOUNCE` in `wake.py` (today only `PO`,
+  120 s) wakes the session that many seconds after its oldest unread message, for every message of
+  the window, whatever its tag (owner, 2026-11-05). Other mailboxes wake at once.
+- **No cap on wakes** (owner, 2026-11-04). No id wakes a PM twice: a PM that read a message and is waiting on someone else is left alone, and an
   ack, which also changes the mailbox, wakes nobody.
 - A PM that never ran `inbox.py read` (it opened the file with `cat`) is not findable: its line in
   the log says `skipped: no opencode session`. Its next turn shows the pending line; once it reads
