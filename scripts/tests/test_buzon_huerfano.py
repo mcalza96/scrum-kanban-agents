@@ -45,7 +45,8 @@ class BuzonHuerfanoTest(unittest.TestCase):
             wake.mailbox_root(self.viejo)
         db = os.path.join(self.tmp, "opencode.db")
         sqlite3.connect(db).close()
-        self.assertEqual(wake.reap_finished(self.viejo, db_path=db), [])
+        self.assertEqual(wake.reap_finished(self.repo, db_path=db), [])  # buzón aún no creado
+        self.assertFalse(os.path.exists(self.nuevo))
         with self.assertRaises(FileNotFoundError):
             lanzar._append_log(self.viejo, {"x": 1})
         self.assertFalse(os.path.exists(os.path.join(self.repo, "gestion")))
@@ -69,6 +70,62 @@ class BuzonHuerfanoTest(unittest.TestCase):
             if name.endswith(".js"):
                 with open(os.path.join(PLUGIN_DIR, name), encoding="utf-8") as f:
                     self.assertNotIn("mkdirSync", f.read(), name)
+
+
+class GestionEnRepoHermanoTest(unittest.TestCase):
+    """2026-11-05: con el buzón en portafolio-gestion, wake sacaba el repo del buzón (repo_of) y
+    caía en el repo de gestión: la alarma de candados buscaba ahí los commits de la app y callaba
+    (89c69be4 dejó `excluidas.length >= 0` sin aviso) y el reap miraba los worktrees equivocados."""
+
+    def test_reap_finished_ve_los_commits_de_la_app(self):
+        import json
+        import subprocess
+        tmp = tempfile.mkdtemp()
+        app, gest = os.path.join(tmp, "app"), os.path.join(tmp, "app-gestion")
+        for d in (app, gest):
+            os.makedirs(d)
+            subprocess.run(["git", "init", "-q", d], check=True)
+        with open(os.path.join(app, ".scrum.toml"), "w") as f:
+            f.write(f'gestion = "{gest}"\n')
+        root = os.path.join(gest, "inbox")
+        inbox.send(root, "PM-calidad", "PO", "hola")
+        def commit(text):
+            os.makedirs(os.path.join(app, "lib"), exist_ok=True)
+            with open(os.path.join(app, "lib", "a.test.ts"), "w") as f:
+                f.write(text)
+            g = ["git", "-C", app, "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run(g + ["add", "-A"], check=True)
+            subprocess.run(g + ["commit", "-qm", "x"], check=True)
+            return subprocess.run(["git", "-C", app, "rev-parse", "--short", "HEAD"],
+                                  capture_output=True, text=True).stdout.strip()
+        commit("assert.ok(n > 100);\n")
+        sha = commit("assert.ok(n >= 0);\n")
+        db_path = os.path.join(tmp, "oc.db")
+        db = sqlite3.connect(db_path)
+        db.executescript(
+            "create table session_v2 (id text, parent_id text, title text, directory text,"
+            " time_archived int, time_busy int, time_idle int, time_created int);"
+            "create table session_message (session_id text, type text, time_created int, data text);")
+        now = int(__import__("time").time() * 1000)
+        db.execute("insert into session_v2 values (?,?,?,?,?,?,?,?)",
+                   ("ses_pm", None, "PM-calidad", app, None, 1, 2, now))
+        db.execute("insert into session_v2 values (?,?,?,?,?,?,?,?)",
+                   ("ses_dev", "ses_pm", "dev CAL-1", app, None, now - 5000, now - 1000, now - 9000))
+        tool = {"type": "tool", "state": {"input": {"command": "git commit -m x"},
+                                          "content": [{"type": "text", "text": f"[main {sha}] x"}]}}
+        db.execute("insert into session_message values (?,?,?,?)",
+                   ("ses_dev", "user", 0, json.dumps({"text": "TO: dev CAL-1"})))
+        db.execute("insert into session_message values (?,?,?,?)",
+                   ("ses_dev", "assistant", 1, json.dumps({"content": [tool]})))
+        db.execute("insert into session_message values (?,?,?,?)",
+                   ("ses_dev", "idle", 10, json.dumps({"outcome": "succeeded"})))
+        db.commit()
+        wake.reap_finished(app, db_path)
+        avisos = [m.text for pm in inbox.mailboxes(root) for m in inbox.messages(root, pm)
+                  if m.sender == "lanzador"]
+        self.assertEqual(len(avisos), 1, avisos)
+        self.assertIn("Candados tocados", avisos[0])
+        self.assertFalse(hasattr(wake, "repo_of"))  # nada vuelve a sacar el repo del buzón
 
 
 if __name__ == "__main__":

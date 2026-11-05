@@ -68,7 +68,7 @@ class CandadosTest(ReapFinishedTest):
         self.db.execute("insert into session_message values (?,?,?,?)",
                         ("ses_dev_gate", "assistant", 8, json.dumps({"content": [tool]})))
         self.db.commit()
-        wake.reap_finished(self.root, self.db_path)
+        wake.reap_finished(self.project, self.db_path)
         return sha, [m.text for m in inbox.messages(self.root, "PM-calidad")]
 
     def test_dev_que_avisa_igual_le_llega_el_candado_al_pm(self):

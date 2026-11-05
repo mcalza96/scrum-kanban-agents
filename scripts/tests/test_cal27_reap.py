@@ -96,7 +96,7 @@ class ReapFinishedTest(unittest.TestCase):
         self.db.commit()
         before = inbox.messages(self.root, "PM-calidad")
         self.assertEqual(len(before), 0)
-        out = wake.reap_finished(self.root, self.db_path)
+        out = wake.reap_finished(self.project, self.db_path)
         self.assertEqual(len(out), 1)
         msgs = inbox.messages(self.root, "PM-calidad")
         # should have one aviso from lanzador
@@ -114,8 +114,8 @@ class ReapFinishedTest(unittest.TestCase):
         self.db.execute("insert into session_message values (?,?,?,?)",
                         ("ses_parent", "user", 0, json.dumps({"text": "TO: PM-calidad"})))
         self.db.commit()
-        wake.reap_finished(self.root, self.db_path)
-        wake.reap_finished(self.root, self.db_path)
+        wake.reap_finished(self.project, self.db_path)
+        wake.reap_finished(self.project, self.db_path)
         msgs = inbox.messages(self.root, "PM-calidad")
         self.assertEqual(len([m for m in msgs if "ses_dev_dup" in m.text]), 1)
         aviso = os.path.join(self.root, ".lanzar", ".aviso-dev")
@@ -132,13 +132,13 @@ class ReapFinishedTest(unittest.TestCase):
         self.db.commit()
         mt_before = os.path.getmtime(self.status_path)
         time.sleep(0.01)
-        wake.reap_finished(self.root, self.db_path)
+        wake.reap_finished(self.project, self.db_path)
         mt_after = os.path.getmtime(self.status_path)
         self.assertEqual(mt_before, mt_after)
         # also STATUS-FASE2
         p2 = os.path.join(self.project, "epic-grupos", "STATUS-FASE2.md")
         mt2_before = os.path.getmtime(p2)
-        wake.reap_finished(self.root, self.db_path)
+        wake.reap_finished(self.project, self.db_path)
         self.assertEqual(mt2_before, os.path.getmtime(p2))
 
     def test_con_send_previo_no_avisa(self):
@@ -148,7 +148,7 @@ class ReapFinishedTest(unittest.TestCase):
         self.db.execute("insert into session_message values (?,?,?,?)",
                         ("ses_parent", "user", 0, json.dumps({"text": "TO: PM-calidad"})))
         self.db.commit()
-        out = wake.reap_finished(self.root, self.db_path)
+        out = wake.reap_finished(self.project, self.db_path)
         self.assertEqual(len(out), 0)
         msgs = inbox.messages(self.root, "PM-calidad")
         self.assertEqual(len(msgs), 0)
@@ -172,7 +172,7 @@ class ReapFinishedTest(unittest.TestCase):
         self.db.commit()
         # inbox PM has a file so mailboxes includes it
         inbox.send(self.root, "PM-calidad", "PO", "hola")
-        done = wake.sweep(self.root, now=time.time(), send=lambda sid, text: None)
+        done = wake.sweep(self.project, now=time.time(), send=lambda sid, text: None)
         # reap should be in done
         self.assertTrue(any("ses_dev_sweep" in d for d in done))
         # sweep nudge may have happened but reap is separate

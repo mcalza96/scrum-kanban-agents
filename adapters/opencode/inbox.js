@@ -47,16 +47,15 @@ function wake(file) {
 }
 
 function run(script, ...args) {
-  const r = root();
-  if (!existsSync(r)) return; // a stale mailbox: never recreate it
-  try { spawn("python3", [script, ...args, r], { detached: true, stdio: "ignore" }).unref(); } catch {}
+  if (!existsSync(root())) return; // a stale mailbox: never recreate it
+  try { spawn("python3", [script, ...args], { detached: true, stdio: "ignore" }).unref(); } catch {}
 }
 
 function lanzarKick() {
   if (lanzarTimer) clearTimeout(lanzarTimer);
   lanzarTimer = setTimeout(() => {
     lanzarTimer = null;
-    run(LANZAR);
+    run(LANZAR, root());
   }, 800);
 }
 
@@ -89,8 +88,8 @@ export default {
     arm();
     setInterval(() => {
       arm();
-      run(LANZAR);           // the retry re-evaluates freed caps
-      run(WAKE, "--reap");   // a dev finished without writing to its PM: wake.py tells the PM, once
+      run(LANZAR, root());   // the retry re-evaluates freed caps
+      run(WAKE, "--reap", PROJECT); // the app repo, never the mailbox: its commits carry the candados
     }, 60_000);
     await api.session.hook("context", async (req) => {
       try {

@@ -197,7 +197,7 @@ class WakeTest(unittest.TestCase):
 
 
     def nudge(self, minutes):
-        return wake.sweep(self.root, now=minutes * 60, send=self.send)
+        return wake.sweep(self.project, now=minutes * 60, send=self.send)
 
     def test_sweep_nudges_an_idle_pm_once_per_idle_stretch(self):
         # 2026-11-02: PMs ended their turn with free dev slots and launchable tickets, and slept
@@ -287,7 +287,9 @@ class RepoTest(unittest.TestCase):
         box = os.path.join(self.repo, "gestion", "inbox")
         self.assertEqual(wake.mailbox_root(self.repo), box)
         self.assertEqual(wake.mailbox_root(box), box)        # a mailbox path still works
-        self.assertEqual(wake.repo_of(box), self.repo)       # not gestion/, the folder above inbox
+        with self.assertRaises(SystemExit):
+            wake.repo_arg(box)                                # --sweep/--reap: only the repo
+        self.assertEqual(wake.repo_arg(self.repo), self.repo)
 
     def test_activos_counts_only_recent_sessions_of_the_repo(self):
         db_path = os.path.join(self.tmp.name, "oc.db")

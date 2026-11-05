@@ -9,7 +9,8 @@
     wake.py --activos <repo> [min]  the sessions with real activity in the last min minutes
                                  (default 10): the only evidence that someone is working
 
-Every form takes the repo or the mailbox folder. Given the repo (a folder with .git), the mailbox
+--sweep and --reap take only the app repo; the plain form also takes the mailbox folder. From the
+repo (a folder with .git) the mailbox
 is found with gestion.inbox_root, so a launchd job never hard-codes where the mailbox lives. Why
 (2026-11-05): ORDEN-4 moved inbox/ to gestion/inbox/ and the sweep, still pointing at the old
 path, recreated inbox/ at the root: nobody woke for an hour and its alarms went unread.
@@ -46,7 +47,7 @@ stretch: idle for more than IDLE and less than STALE (older is a retired PM), an
 not already a nudge, so a PM that answered "nothing to do" is not nudged again until something else
 happens in its session.
 
-The sweep then runs `stale_worktrees.py <repo> --reap` on the repo that holds inbox/ (DoD 9):
+The sweep then runs `stale_worktrees.py <repo> --reap` on the app repo (DoD 9):
 worktrees with no git activity for a day go, saved first as `conserva/wt-<name>` when they hold
 work, and agent postgres with no client go down. Each line it prints is logged. Last it runs
 `scripts/archivar.py` on the repo: old read mail, old wake lines, closed STATUS rows and done
@@ -135,12 +136,15 @@ def woken_ids(root: str, pm: str, sid: str) -> set[str]:
     return ids
 
 
-def repo_of(root: str) -> str:
-    """The repo that holds a mailbox folder: the nearest folder up with a .git."""
-    d = os.path.abspath(root)
-    while not os.path.exists(os.path.join(d, ".git")) and os.path.dirname(d) != d:
-        d = os.path.dirname(d)
-    return d if os.path.exists(os.path.join(d, ".git")) else os.path.dirname(os.path.abspath(root))
+def repo_arg(arg: str) -> str:
+    """--sweep and --reap take the app repo, never the mailbox: the mailbox may live in another repo
+    (.scrum.toml), and from it there is no way back to the app whose commits and worktrees they check.
+    2026-11-05: with the mailbox in portafolio-gestion, the candado alarm looked for app commits there
+    and stayed silent, and the reap looked at the worktrees of the gestion repo."""
+    repo = os.path.abspath(arg)
+    if not os.path.exists(os.path.join(repo, ".git")):
+        raise SystemExit(f"{arg}: not a repo (no .git); --sweep and --reap take the app repo")
+    return repo
 
 
 def mailbox_root(arg: str) -> str:
@@ -511,7 +515,7 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     # 5) inferir del ticket en STATUS
     ticket = _ticket_from_title(title) or _ticket_from_prompt(db, sid)
     if ticket:
-        gr = gestion.raiz_gestion(repo_of(root))
+        gr = os.path.dirname(root)  # root is always <gestion>/inbox
         for pat in [os.path.join(gr, "epic-*", "STATUS.md"),
                     os.path.join(gr, "epic-*", "STATUS-*.md")]:
             for path in glob.glob(pat):
@@ -527,7 +531,7 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     return "PO"
 
 
-def reap_finished(root: str, db_path: str = DB) -> list[str]:
+def reap_finished(repo: str, db_path: str = DB) -> list[str]:
     """Le avisa al PM cuando un dev suyo termina bien (succeeded), salvo que el dev ya le haya
     escrito con `inbox.py send --to <PM>`: el PM no depende de que el dev se acuerde.
 
@@ -538,11 +542,11 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
     (dedup .aviso-dev con flock). No edita STATUS. Corre cada minuto
     desde el plugin inbox.js (`wake.py --reap`) y cada 15 min desde el barrido.
     """
+    root = gestion.inbox_root(repo)  # the app repo: its commits are where the candados live
     if not os.path.exists(db_path) or not os.path.isdir(root):  # a stale root: never recreate it
         return []
     aviso_path = os.path.join(root, ".lanzar", ".aviso-dev")
     os.makedirs(os.path.dirname(aviso_path), exist_ok=True)
-    repo = repo_of(root)
     done: list[str] = []
     # filtros solo lanzar/log y ventana
     log_sids = _load_log_sids(root)
@@ -644,9 +648,10 @@ def reap_finished(root: str, db_path: str = DB) -> list[str]:
     return done
 
 
-def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float = STALE,
+def sweep(repo: str, now: float | None = None, idle: float = IDLE, stale: float = STALE,
           send=None) -> list[str]:
     """Nudge every idle PM once per idle stretch. Returns one decision per PM with a session."""
+    root = gestion.inbox_root(repo)
     send = send or (lambda sid, text: subprocess.Popen(
         [opencode(), "run", "--session", sid, text],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
@@ -654,7 +659,7 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
     done: list[str] = []
     # aviso de dev terminado, un solo punto que cubre 100% (barrido).
     try:
-        done.extend(reap_finished(root, DB))
+        done.extend(reap_finished(repo, DB))
     except Exception:
         pass
     db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
@@ -681,9 +686,9 @@ def sweep(root: str, now: float | None = None, idle: float = IDLE, stale: float 
     return done
 
 
-def reap(root: str, older: float = 24.0) -> list[str]:
-    """Reap the stale worktrees and idle postgres of the repo that holds root; log what it did."""
-    repo = repo_of(root)
+def reap(repo: str, older: float = 24.0) -> list[str]:
+    """Reap the stale worktrees and idle postgres of the app repo; log what it did in its mailbox."""
+    root = gestion.inbox_root(repo)
     lines = stale_worktrees.reap(repo, "main", stale_worktrees.in_use(), older)
     lines += stale_worktrees.stop_postgres(stale_worktrees.PG_ROOT, older)
     for line in lines:
@@ -787,21 +792,23 @@ def activos(repo: str, minutes: float = 10, db_path: str = DB, at: float | None 
 
 def main(argv: list[str]) -> int:
     if len(argv) in (2, 3) and argv[0] == "--activos":
-        repo = repo_of(argv[1])
+        repo = os.path.abspath(argv[1])
         mins = float(argv[2]) if len(argv) == 3 else 10
         print("\n".join(activos(repo, mins)) or f"nadie con actividad en los últimos {mins:g} min")
         return 0
     if len(argv) == 2 and argv[0] == "--sweep":
-        root = mailbox_root(argv[1])
-        print("\n".join(sweep(root)) or "nobody idle")
-        print("\n".join(reap(root)))
-        for line in archivar.archive(repo_of(root)):
+        repo = repo_arg(argv[1])
+        root = mailbox_root(repo)
+        print("\n".join(sweep(repo)) or "nobody idle")
+        print("\n".join(reap(repo)))
+        for line in archivar.archive(repo):
             log(root, "archivo", line)
             print(line)
         return 0
     if len(argv) == 2 and argv[0] == "--reap":
-        root = mailbox_root(argv[1])
-        for line in reap_finished(root):
+        repo = repo_arg(argv[1])
+        root = mailbox_root(repo)
+        for line in reap_finished(repo):
             log(root, "aviso-dev", line)
             print(line)
         return 0

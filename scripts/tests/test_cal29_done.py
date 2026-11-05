@@ -91,7 +91,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         has = wake._has_delivery_evidence(self.db, "ses_no_evid", "CAL-90", self.project, self.root)
         self.assertFalse(has, "sin evidencia no debe contar como éxito (CAL-29)")
         # reap debe avisar "terminó sin entregar" y no marcar como done
-        out = wake.reap_finished(self.root, self.db_path)
+        out = wake.reap_finished(self.project, self.db_path)
         self.assertEqual(len(out), 1)
         self.assertIn("terminó sin entregar", inbox.messages(self.root, "PM-calidad")[0].text)
 
@@ -104,7 +104,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         self.add_dev("ses_con_report", ticket="CAL-91")
         self.write_log("ses_con_report", ticket="CAL-91")
         self.assertTrue(wake._has_delivery_evidence(self.db, "ses_con_report", "CAL-91", self.project, self.root))
-        out = wake.reap_finished(self.root, self.db_path)
+        out = wake.reap_finished(self.project, self.db_path)
         self.assertEqual(len(out), 1)
         text = inbox.messages(self.root, "PM-calidad")[0].text
         self.assertTrue(text.startswith("[encargo] CAL-91 terminó y entregó sin avisarte"), text)
@@ -118,14 +118,14 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         self.add_dev("ses_con_file", ticket="CAL-92")
         self.write_log("ses_con_file", ticket="CAL-92", expected="epic-calidad/reports/CAL-92.md")
         self.assertTrue(wake._has_delivery_evidence(self.db, "ses_con_file", "CAL-92", self.project, self.root))
-        self.assertEqual(len(wake.reap_finished(self.root, self.db_path)), 1)
+        self.assertEqual(len(wake.reap_finished(self.project, self.db_path)), 1)
         self.assertIn("entregó sin avisarte", inbox.messages(self.root, "PM-calidad")[0].text)
 
     # El dev que sí le escribió a su PM no genera aviso (el PM ya despertó con su mensaje).
     def test_dev_que_avisa_a_su_pm_no_genera_aviso(self):
         self.add_dev("ses_avisa", ticket="CAL-96", with_send=True)
         self.write_log("ses_avisa", ticket="CAL-96")
-        self.assertEqual(wake.reap_finished(self.root, self.db_path), [])
+        self.assertEqual(wake.reap_finished(self.project, self.db_path), [])
         self.assertEqual(inbox.messages(self.root, "PM-calidad"), [])
 
     # Leer un archivo que menciona `inbox.py send` no es avisar: cuenta solo el comando corrido,
@@ -142,7 +142,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         self.db.commit()
         self.assertTrue(wake._has_inbox_send(self.db, "ses_lee"))
         self.assertFalse(wake._has_inbox_send(self.db, "ses_lee", "PM-calidad"))
-        self.assertEqual(len(wake.reap_finished(self.root, self.db_path)), 1)
+        self.assertEqual(len(wake.reap_finished(self.project, self.db_path)), 1)
 
     # Lo que terminó antes de RECENT_MS no se avisa como novedad (evita el aluvión del deploy).
     def test_entrega_vieja_no_se_avisa(self):
@@ -150,15 +150,15 @@ class Cal29VerificaDoneTest(unittest.TestCase):
             f.write("| Ticket | Estado |\n| CAL-98 | reported |\n")
         self.add_dev("ses_vieja", ticket="CAL-98", idle=int(time.time() * 1000) - wake.RECENT_MS - 60_000)
         self.write_log("ses_vieja", ticket="CAL-98")
-        self.assertEqual(wake.reap_finished(self.root, self.db_path), [])
-        self.assertEqual(wake.reap_finished(self.root, self.db_path), [])  # y queda marcada
+        self.assertEqual(wake.reap_finished(self.project, self.db_path), [])
+        self.assertEqual(wake.reap_finished(self.project, self.db_path), [])  # y queda marcada
 
     # CAL-29 candado 3: barrido no avisa por sesiones fuera de ventana
     def test_barrido_no_avisa_fuera_ventana(self):
         old_idle = int(time.time()*1000) - 25*3600*1000  # 25h atrás
         self.add_dev("ses_old", ticket="CAL-93", idle=old_idle)
         self.write_log("ses_old", ticket="CAL-93")
-        out = wake.reap_finished(self.root, self.db_path)
+        out = wake.reap_finished(self.project, self.db_path)
         self.assertEqual(len(out), 0, "sesión fuera de ventana 24h no debe avisar")
         self.assertEqual(len(inbox.messages(self.root, "PM-calidad")), 0)
 
@@ -168,7 +168,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         # no escribo log para este sid — está fuera de lanzar/log
         # escribo otro log para que exista log no vacío
         self.write_log("ses_otro", ticket="CAL-99")
-        out = wake.reap_finished(self.root, self.db_path)
+        out = wake.reap_finished(self.project, self.db_path)
         # solo ses_otro no existe como dev, entonces nada
         self.assertEqual(len(out), 0)
         self.assertEqual(len(inbox.messages(self.root, "PM-calidad")), 0)
@@ -206,8 +206,8 @@ class Cal29VerificaDoneTest(unittest.TestCase):
     def test_un_solo_aviso_con_flock(self):
         self.add_dev("ses_dedup", ticket="CAL-96")
         self.write_log("ses_dedup", ticket="CAL-96")
-        out1 = wake.reap_finished(self.root, self.db_path)
-        out2 = wake.reap_finished(self.root, self.db_path)
+        out1 = wake.reap_finished(self.project, self.db_path)
+        out2 = wake.reap_finished(self.project, self.db_path)
         self.assertEqual(len(out1), 1)
         self.assertEqual(len(out2), 0)
         aviso = os.path.join(self.root, ".lanzar", ".aviso-dev")
@@ -244,11 +244,11 @@ class Cal29VerificaDoneTest(unittest.TestCase):
 
         def run1():
             barrier.wait()
-            out1.extend(wake.reap_finished(self.root, self.db_path))
+            out1.extend(wake.reap_finished(self.project, self.db_path))
 
         def run2():
             barrier.wait()
-            out2.extend(wake.reap_finished(self.root, self.db_path))
+            out2.extend(wake.reap_finished(self.project, self.db_path))
 
         t1 = threading.Thread(target=run1)
         t2 = threading.Thread(target=run2)
