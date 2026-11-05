@@ -91,7 +91,7 @@ class EstaticoTest(unittest.TestCase):
             self.assertEqual(gestion.raiz_gestion(td), os.path.abspath(td))
 
     def test_js_gestion_existe(self):
-        p = os.path.join(ROOT, "adapters", "opencode", "gestion.js")
+        p = os.path.join(ROOT, "adapters", "lib", "gestion.js")
         self.assertTrue(os.path.exists(p), "gestion.js debe existir")
         txt = open(p, encoding="utf-8").read()
         self.assertIn("raizGestion", txt)

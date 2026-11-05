@@ -72,6 +72,17 @@ class BuzonHuerfanoTest(unittest.TestCase):
                     self.assertNotIn("mkdirSync", f.read(), name)
 
 
+class PluginDirTest(unittest.TestCase):
+    """2026-11-05: gestion.js vivía en .opencode/plugin/ y opencode lo cargaba como plugin: «Plugin
+    must export a default definition». Todo .js del directorio que se copia a plugin/ es un plugin."""
+
+    def test_todo_js_de_plugin_exporta_default(self):
+        for name in os.listdir(PLUGIN_DIR):
+            if name.endswith(".js"):
+                with open(os.path.join(PLUGIN_DIR, name), encoding="utf-8") as f:
+                    self.assertRegex(f.read(), r"(?m)^export default\b", name)
+
+
 class GestionEnRepoHermanoTest(unittest.TestCase):
     """2026-11-05: con el buzón en portafolio-gestion, wake sacaba el repo del buzón (repo_of) y
     caía en el repo de gestión: la alarma de candados buscaba ahí los commits de la app y callaba

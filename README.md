@@ -75,7 +75,7 @@ to skip. `<skill>` is where you cloned it; `inbox/` stays out of git (it is live
 |---|---|
 | Claude Code | In `.claude/settings.json`: `python3 <skill>/scripts/focus.py hook "$CLAUDE_PROJECT_DIR/focus"` on `SessionStart`, and `python3 <skill>/scripts/inbox.py hook "$CLAUDE_PROJECT_DIR/inbox"` on `UserPromptSubmit` |
 | git (any runtime) | `git config core.hooksPath <skill>/scripts/hooks` and `git config prepush.cmd '<your build>'` (default `npx tsc --noEmit -p .`). The gate calls `scripts/trinquete.py` (references/gates.md) |
-| opencode | Copy `adapters/opencode/inbox.js` and `guard.js` to `<project>/.opencode/plugin/`. A timer (launchd, cron) runs `adapters/opencode/wake.py --sweep <project>` every 5 minutes: it finds the mailbox through `.scrum.toml`, so never give it the mailbox path. `wake.py --activos <project>` lists the sessions with real activity in the last 10 minutes After every `opencode upgrade`, run `scripts/opencode_inbox_smoke.sh` |
+| opencode | Copy `adapters/opencode/inbox.js` and `guard.js` to `<project>/.opencode/plugin/`, and `adapters/lib/gestion.js` to `<project>/.opencode/lib/` (helpers stay out of `plugin/`: opencode loads every file there as a plugin). A timer (launchd, cron) runs `adapters/opencode/wake.py --sweep <project>` every 5 minutes: it finds the mailbox through `.scrum.toml`, so never give it the mailbox path. `wake.py --activos <project>` lists the sessions with real activity in the last 10 minutes After every `opencode upgrade`, run `scripts/opencode_inbox_smoke.sh` |
 | Codex | `adapters/codex.md` |
 | Anything else | The PM's system prompt runs `inbox.py pending inbox/` at the start of every turn |
 

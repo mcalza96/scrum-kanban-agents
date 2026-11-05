@@ -20,7 +20,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { raizGestion } from "./gestion.js";
+import { raizGestion } from "../lib/gestion.js";
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 // The mailbox is read from .scrum.toml on every use, never once at load: the service outlives a
