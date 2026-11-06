@@ -103,7 +103,8 @@ command, and an output. «It was slow» is not a lesson.
   Claim by an atomic rename, and test it with a double of the binary.
 - **Files every agent reads each turn must be bounded.** Mailboxes, the wake log, `STATUS.md` and
   the focus tables grow forever, and their cost is paid on every read (`STATUS.md`: 555 reads in a
-  day). `scripts/archivar.py` moves what is done to archive files in the sweep. When ids are
+  day). `scripts/archivar.py` archiva buzones y logs en el barrido; STATUS y focus requieren
+  `--tableros` manual, sin editores concurrentes (decisión del dueño, 2026-11-06). When ids are
   numbered from the highest row, the highest row never moves, or ids are handed out twice.
 
 ## Environment and permissions

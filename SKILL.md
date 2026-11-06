@@ -228,7 +228,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/trinquete.py` | Ratchet for a red trunk: only the known failures may fail, and their list only shrinks (DoD 2) |
 | `scripts/hooks/pre-push` | Refuses a push whose commit does not build in a clean worktree |
 | `adapters/opencode/control.sh` | The auditor's read-only check of the last N minutes (references/lessons.md, «Supervision») |
-| `scripts/archivar.py` | Moves read mail, old wake lines, closed STATUS rows and done directives to archive files (run by the sweep) |
+| `scripts/archivar.py` | Archiva mensajes leídos y logs en el barrido. STATUS/focus solo con `--tableros` manual, sin editores activos |
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |

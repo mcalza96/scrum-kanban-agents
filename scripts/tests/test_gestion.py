@@ -12,6 +12,8 @@ import re
 import sys
 import tempfile
 import unittest
+import subprocess
+from unittest.mock import patch
 
 HERE = os.path.dirname(__file__)
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -90,6 +92,27 @@ class EstaticoTest(unittest.TestCase):
             os.remove(os.path.join(td, ".scrum.toml"))
             self.assertEqual(gestion.raiz_gestion(td), os.path.abspath(td))
 
+    def test_rutas_relativas_conservan_padres_y_directorios_ocultos(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {k:v for k,v in os.environ.items() if k not in ("SCRUM_GESTION", "GESTION")}, clear=True):
+            for raw in ["./../hermano", "./.gestion", "././gestion", ".//hermano", "../hermano", "gestion"]:
+                with self.subTest(raw=raw):
+                    with open(os.path.join(td, ".scrum.toml"), "w") as f:
+                        f.write(f'gestion = "{raw}"\n')
+                    expected = os.path.normpath(os.path.join(td, raw))
+                    self.assertEqual(gestion.raiz_gestion(td), expected)
+                    code = f"import {{raizGestion}} from {json.dumps(os.path.join(ROOT,'adapters/lib/gestion.js'))}; console.log(raizGestion(process.argv[1]));"
+                    result = subprocess.run(["node", "--input-type=module", "-e", code, td],
+                                            capture_output=True, text=True, check=True)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_env_vacio_usa_alias_como_js(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"SCRUM_GESTION":" ", "GESTION":"gestion-alias"}):
+            expected = os.path.join(td, "gestion-alias")
+            self.assertEqual(gestion.raiz_gestion(td), expected)
+            code = f"import {{raizGestion}} from {json.dumps(os.path.join(ROOT,'adapters/lib/gestion.js'))}; console.log(raizGestion(process.argv[1]));"
+            result = subprocess.run(["node", "--input-type=module", "-e", code, td], capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout.strip(), expected)
+
     def test_js_gestion_existe(self):
         p = os.path.join(ROOT, "adapters", "lib", "gestion.js")
         self.assertTrue(os.path.exists(p), "gestion.js debe existir")
@@ -146,7 +169,7 @@ class CompatibilidadSinConfigTest(unittest.TestCase):
             # archivar sobre raíz mueve 1 fila (STATUS)
             import datetime
 
-            done = archivar.archive(repo, now=datetime.datetime.now().astimezone())
+            done = archivar.archive(repo, now=datetime.datetime.now().astimezone(), tables=True)
             # debe haber movido al menos STATUS o nada si KEEP_CLOSED, pero no error
             self.assertIsInstance(done, list)
 
@@ -189,7 +212,7 @@ class CompatibilidadConGestionTest(unittest.TestCase):
             # 3) archivar: debe archivar desde gestion, no desde repo raíz
             import datetime
 
-            done = archivar.archive(repo, now=datetime.datetime.now().astimezone())
+            done = archivar.archive(repo, now=datetime.datetime.now().astimezone(), tables=True)
             # debe mencionar epic-demo
             self.assertTrue(any("epic-demo" in d for d in done) or done == [])
             # gestión: epic-demo STATUS-archivo debe existir en gestion, no en raíz

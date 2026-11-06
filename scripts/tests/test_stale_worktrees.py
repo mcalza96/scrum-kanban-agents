@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import stale_worktrees as sw  # noqa: E402
@@ -118,6 +119,39 @@ class ReapTest(StaleWorktreesTest):
         self.assertFalse(os.path.exists(ahead), lines)
         self.assertIn(f"conserva/wt-again-{sha[:8]}", self.branches())
         self.assertIn("conserva/wt-again", self.branches())
+
+    def test_error_al_guardar_no_borra_el_worktree(self):
+        dirty = self.add("fallo-guardado")
+        filename = os.path.join(dirty, "nuevo.txt")
+        with open(filename, "w") as f:
+            f.write("trabajo que debe sobrevivir")
+        self.age(dirty, 48)
+        original = sw.git
+        def falla_add(repo, *args, **kw):
+            if args[:2] == ("add", "-A"):
+                return subprocess.CompletedProcess(args, 128, "", "fallo simulado de git add")
+            return original(repo, *args, **kw)
+        with patch.object(sw, "git", side_effect=falla_add):
+            lines = sw.reap(self.repo, "main", set(), older=24)
+        self.assertTrue(os.path.isfile(filename), lines)
+        self.assertIn("FAILED", "\n".join(lines))
+        self.assertEqual(self.branches(), [])
+
+    def test_error_al_inspeccionar_no_se_confunde_con_limpio(self):
+        dirty = self.add("fallo-inspeccion")
+        filename = os.path.join(dirty, "nuevo.txt")
+        with open(filename, "w") as f:
+            f.write("trabajo sin commitear")
+        self.age(dirty, 48)
+        original = sw.git
+        def falla_status(repo, *args, **kw):
+            if "status" in args:
+                return subprocess.CompletedProcess(args, 128, "", "fallo simulado de status")
+            return original(repo, *args, **kw)
+        with patch.object(sw, "git", side_effect=falla_status):
+            lines = sw.reap(self.repo, "main", set(), older=24)
+        self.assertTrue(os.path.isfile(filename), lines)
+        self.assertIn("FAILED", "\n".join(lines))
 
     def test_dry_run_touches_nothing(self):
         dirty = self.add("dirty")

@@ -34,8 +34,10 @@ The sweep runs `scripts/archivar.py` (D-283). Read rows older than 48 hours move
 `inbox/archivo/<mailbox>-AAAA-MM.md`; unread rows never move. `send` numbers past the highest id
 of the live file and of the mailbox's archive files, so an id is never handed out twice, even after
 a restore. Lines of `.wakes.log` older than 7 days move to `inbox/archivo/wakes-AAAA-MM.log`.
-The same pass moves `closed` rows of every `STATUS.md` to `STATUS-archivo.md`, except the 5 most
-recently updated, and directives `executed` or `superseded` below `## Archived` in the focus files.
+El archivado manual de tableros mueve filas `closed` a `STATUS-archivo.md`, conserva las cinco
+más recientes y mueve directivas `executed`/`superseded` debajo de `## Archived`.
+STATUS y focus se compactan solo manualmente con `python3 <skill>/scripts/archivar.py <repo> --tableros`, sin editores activos. El barrido no los reescribe (decisión del dueño, 2026-11-06).
+
 It moves and never deletes; whoever commits a `STATUS.md` or focus file commits its archive too.
 
 ## When a PM writes

@@ -32,15 +32,10 @@ _KEY_RE = re.compile(r'^\s*gestion\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$')
 
 
 def _from_env() -> str | None:
-    v = os.environ.get(ENV_VAR)
-    if v is None:
-        # compat: GESTION también aceptado (documentado en reporte)
-        v = os.environ.get("GESTION")
-    if v is not None:
-        v = v.strip()
-        if v == "":
-            return None
-        return v
+    for name in (ENV_VAR, "GESTION"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
     return None
 
 
@@ -74,10 +69,6 @@ def raiz_gestion(repo: str) -> str:
     if raw is None:
         raw = _from_file(base)
     if raw is None or raw in (".", "./", ""):
-        return base
-    # normaliza: quita ./ prefijo
-    raw = raw.lstrip("./") if raw.startswith("./") else raw
-    if raw in ("", "."):
         return base
     if os.path.isabs(raw):
         return os.path.normpath(raw)

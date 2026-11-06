@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Move what is done out of the files agents read every turn. It moves, never deletes.
 
-    archivar.py <repo>              archive, one line per move
+    archivar.py <repo>              archiva buzones y logs, una línea por movimiento
+    archivar.py <repo> --tableros   incluye STATUS/focus; ejecutar sin editores activos
     archivar.py <repo> --dry-run    say what it would move, touch nothing
 
 - Mailboxes `inbox/<name>.md`: rows already read whose read stamp (else sent) is older than
@@ -23,6 +24,7 @@ it. Why (D-283, 2026-11-03): inbox/PO.md held 107 KB with no unread row, and age
 from __future__ import annotations
 
 import datetime
+import fcntl
 import glob
 import os
 import re
@@ -92,26 +94,28 @@ def mailboxes(root: str, now: datetime.datetime, dry: bool) -> list[str]:
 def wakes(root: str, now: datetime.datetime, dry: bool) -> list[str]:
     path = os.path.join(root, ".wakes.log")
     try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().splitlines()
+        f = open(path, "r" if dry else "r+", encoding="utf-8")
     except FileNotFoundError:
         return []
-    def old(line: str) -> bool:
-        age = inbox.age_hours(" ".join(line.split(" ")[:3]), now)
-        return age is not None and age > WAKES_DAYS * 24
-    moving = [l for l in lines if old(l)]
-    if not moving:
-        return []
-    by_month: dict[str, list[str]] = {}
-    for l in moving:
-        by_month.setdefault(l[:7], []).append(l)
-    for month, rows in by_month.items():
-        append_new(os.path.join(root, "archivo", f"wakes-{month}.log"), rows, "", dry)
-    if not dry:
-        with open(path, encoding="utf-8") as f:
-            late = f.read().splitlines()[len(lines):]  # a wake that logged meanwhile
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join([l for l in lines if not old(l)] + late) + "\n")
+    # El mismo inode y candado que wake.log: ningún append se pierde al compactar.
+    with f:
+        fcntl.flock(f, fcntl.LOCK_SH if dry else fcntl.LOCK_EX)
+        lines = f.read().splitlines()
+        def old(line: str) -> bool:
+            age = inbox.age_hours(" ".join(line.split(" ")[:3]), now)
+            return age is not None and age > WAKES_DAYS * 24
+        moving = [line for line in lines if old(line)]
+        if not moving:
+            return []
+        by_month: dict[str, list[str]] = {}
+        for line in moving:
+            by_month.setdefault(line[:7], []).append(line)
+        for month, rows in by_month.items():
+            append_new(os.path.join(root, "archivo", f"wakes-{month}.log"), rows, "", dry)
+        if not dry:
+            f.seek(0)
+            f.write("\n".join(line for line in lines if not old(line)) + "\n")
+            f.truncate()
     return [f".wakes.log: {len(moving)} líneas a inbox/archivo/"]
 
 
@@ -184,20 +188,21 @@ def directives(repo: str, dry: bool) -> list[str]:
     return done
 
 
-def archive(repo: str, now: datetime.datetime | None = None, dry: bool = False) -> list[str]:
+def archive(repo: str, now: datetime.datetime | None = None, dry: bool = False,
+            tables: bool = False) -> list[str]:
     now = now or datetime.datetime.now().astimezone()
     root = os.path.join(gestion.raiz_gestion(repo), "inbox")
     done = []
     if os.path.isdir(root):
         done += mailboxes(root, now, dry) + wakes(root, now, dry)
-    return done + statuses(repo, dry) + directives(repo, dry)
+    return done + (statuses(repo, dry) + directives(repo, dry) if tables else [])
 
 
 def main(argv: list[str]) -> int:
     if not argv or argv[0].startswith("-"):
         print(__doc__, file=sys.stderr)
         return 2
-    print("\n".join(archive(os.path.abspath(argv[0]), dry="--dry-run" in argv)) or "nada que archivar")
+    print("\n".join(archive(os.path.abspath(argv[0]), dry="--dry-run" in argv, tables="--tableros" in argv)) or "nada que archivar")
     return 0
 
 

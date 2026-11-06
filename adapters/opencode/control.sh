@@ -8,14 +8,16 @@ R=${1:?usage: control.sh <repo> [minutes]}
 M=${2:-10}
 DB=~/.local/share/opencode/opencode.db
 DESDE="strftime('%s','now','-$M minutes')*1000"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$R" || exit 1
-# raiz de gestión (gestion-aware): lee SCRUM_GESTION / .scrum.toml
-GESTION_ROOT="$R"
-if [ -n "${SCRUM_GESTION:-}" ]; then GESTION_ROOT="$R/$SCRUM_GESTION"
-elif [ -f "$R/.scrum.toml" ]; then
-  _g=$(sed -n 's/^[[:space:]]*gestion[[:space:]]*=[[:space:]]*["'\'']\([^"'\'']*\)["'\''].*/\1/p' "$R/.scrum.toml" | head -1)
-  [ -n "$_g" ] && [ "$_g" != "." ] && GESTION_ROOT="$R/$_g"
-fi
+# Usa el mismo resolver que el resto de la skill, también para rutas absolutas.
+GESTION_ROOT="$(python3 - "$SCRIPT_DIR/../../scripts" "$PWD" <<'PYTHON'
+import sys
+sys.path.insert(0, sys.argv[1])
+from gestion import raiz_gestion
+print(raiz_gestion(sys.argv[2]))
+PYTHON
+)" || exit 1
 # inbox/focus resueltos vía gestion
 INBOX_DIR="$GESTION_ROOT/inbox"
 echo "== $(date '+%H:%M') · últimos $M min =="
@@ -31,7 +33,7 @@ echo "-- pedidos en $INBOX_DIR/.lanzar"
 ls "$INBOX_DIR/.lanzar" 2>/dev/null
 echo "-- buzón PO: filas y sin leer"
 grep -c '^| M-' "$INBOX_DIR/PO.md"
-python3 "$(dirname "$0")/../../scripts/inbox.py" unread "$INBOX_DIR" PO 2>/dev/null | head -5
+python3 "$SCRIPT_DIR/../../scripts/inbox.py" read "$INBOX_DIR" PO 2>/dev/null | head -5
 echo "-- D-282: turnos del PO en la ventana, despertares y retenciones"
 sqlite3 "$DB" "select count(*) from session_message m join session_v2 s on s.id=m.session_id where s.title like '%PO%' and s.parent_id is null and m.type='user' and m.time_created > $DESDE"
 grep -E " PO (woke|held)" "$INBOX_DIR/.wakes.log" 2>/dev/null | tail -5

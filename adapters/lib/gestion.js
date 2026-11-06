@@ -37,8 +37,6 @@ export function raizGestion(repo) {
   let raw = fromEnv();
   if (raw == null) raw = fromFile(base);
   if (raw == null || raw === "." || raw === "./" || raw === "") return base;
-  raw = raw.startsWith("./") ? raw.slice(2) : raw;
-  if (raw === "" || raw === ".") return base;
   if (isAbsolute(raw)) return normalize(raw);
   return normalize(join(base, raw));
 }

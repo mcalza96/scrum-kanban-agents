@@ -49,6 +49,13 @@ def git(repo: str, *args: str, env: dict | None = None) -> subprocess.CompletedP
                           env={**os.environ, **env} if env else None)
 
 
+def checked_git(repo: str, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    result = git(repo, *args, env=env)
+    if result.returncode:
+        raise RuntimeError(f"git {' '.join(args)}: {result.stderr.strip()}")
+    return result
+
+
 def worktrees(repo: str) -> list[str]:
     out = git(repo, "worktree", "list", "--porcelain").stdout
     paths = [l[len("worktree "):] for l in out.splitlines() if l.startswith("worktree ")]
@@ -72,9 +79,9 @@ def classify(repo: str, path: str, base: str, busy: set[str]) -> str:
     if not os.path.isdir(path):
         return "MISSING  (run `git worktree prune`)"
     # --no-optional-locks: looking must not refresh the index, or it would count as activity
-    if git(path, "--no-optional-locks", "status", "--porcelain").stdout.strip():
+    if checked_git(path, "--no-optional-locks", "status", "--porcelain").stdout.strip():
         return "DIRTY"
-    head = git(path, "rev-parse", "HEAD").stdout.strip()
+    head = checked_git(path, "rev-parse", "HEAD").stdout.strip()
     if git(repo, "merge-base", "--is-ancestor", head, base).returncode != 0:
         n = git(repo, "rev-list", "--count", f"{base}..{head}").stdout.strip()
         return f"AHEAD    ({n} commits outside {base})"
@@ -83,7 +90,7 @@ def classify(repo: str, path: str, base: str, busy: set[str]) -> str:
 
 def last_activity(path: str) -> float:
     """Newest mtime of the worktree's HEAD, index and reflog: its last commit, add or checkout."""
-    gitdir = git(path, "rev-parse", "--absolute-git-dir").stdout.strip()
+    gitdir = checked_git(path, "rev-parse", "--absolute-git-dir").stdout.strip()
     files = [os.path.join(gitdir, f) for f in ("HEAD", "index", os.path.join("logs", "HEAD"))]
     return max((os.path.getmtime(f) for f in files if os.path.exists(f)), default=0.0)
 
@@ -94,14 +101,14 @@ def conserve(repo: str, path: str) -> str:
     os.close(fd)
     try:
         env = {"GIT_INDEX_FILE": index}
-        git(path, "read-tree", "HEAD", env=env)
-        git(path, "add", "-A", env=env)
-        tree = git(path, "write-tree", env=env).stdout.strip()
+        checked_git(path, "read-tree", "HEAD", env=env)
+        checked_git(path, "add", "-A", env=env)
+        tree = checked_git(path, "write-tree", env=env).stdout.strip()
     finally:
         os.unlink(index)
-    commit = git(path, "rev-parse", "HEAD").stdout.strip()
-    if tree and tree != git(path, "rev-parse", "HEAD^{tree}").stdout.strip():
-        commit = git(path, "commit-tree", tree, "-p", commit, "-m",
+    commit = checked_git(path, "rev-parse", "HEAD").stdout.strip()
+    if tree and tree != checked_git(path, "rev-parse", "HEAD^{tree}").stdout.strip():
+        commit = checked_git(path, "commit-tree", tree, "-p", commit, "-m",
                      f"conserva: {os.path.basename(path)} sin commitear, antes de quitar el "
                      "worktree (stale_worktrees.py --reap)").stdout.strip()
     branch = f"conserva/wt-{os.path.basename(path)}"
@@ -118,8 +125,12 @@ def reap(repo: str, base: str, busy: set[str], older: float, now: float | None =
     now = time.time() if now is None else now
     done = []
     for path in worktrees(repo):
-        active = last_activity(path) if os.path.isdir(path) else 0.0
-        state = classify(repo, path, base, busy).split()[0]
+        try:
+            active = last_activity(path) if os.path.isdir(path) else 0.0
+            state = classify(repo, path, base, busy).split()[0]
+        except RuntimeError as e:
+            done.append(f"FAILED {path}: {e}")
+            continue
         if state == "IN":
             done.append(f"kept {path}: in use")
             continue
