@@ -6,8 +6,9 @@
 // Cada rechazo deja línea en inbox/.bloqueos.log (fecha, sesión, comando recortado, regla).
 // Errores del plugin dejan pasar el comando y lo anotan. Umbral configurable.
 import { execSync, execFileSync } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { appendFileSync, existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { raizGestion } from "../lib/gestion.js";
 
 const SLEEP_UMBRAL = 5; // segundos, configurable por dueño
@@ -215,6 +216,55 @@ export function sharedCheckout(projectDir) {
   };
 }
 
+// La metadata privada permanece aunque alguien haya borrado el directorio del worktree.
+// No inferimos propiedad por el nombre codex/dev: las ramas ajenas siguen permitidas.
+function managedWorktrees(repo) {
+  let common;
+  try { common = gitPaths(repo)[1]; } catch { return []; }
+  const records = [];
+  let dirs;
+  try { dirs = readdirSync(join(common, "worktrees")); } catch { return []; }
+  for (const dir of dirs) {
+    try {
+      const gd = join(common, "worktrees", dir);
+      const data = JSON.parse(readFileSync(join(gd, "scrum-dev.json"), "utf8"));
+      const linked = dirname(readFileSync(join(gd, "gitdir"), "utf8").trim());
+      if (data.directory !== linked || !data.id || !data.gestion || !data.branch ||
+          gitPaths(data.project)[1] !== common) continue;
+      records.push(data);
+    } catch {}
+  }
+  return records;
+}
+
+const canonicalPath = path => { try { return realpathSync(path); } catch { return resolve(path); } };
+const shellQuote = value => "'" + value.replace(/'/g, "'\\''") + "'";
+
+function managedCloseBlocked(words, target) {
+  let paths = [], branches = [];
+  if (words[0] === "worktree" && ["unlock", "remove"].includes(words[1])) {
+    paths = words.slice(2).filter(word => !word.startsWith("-"));
+  } else if (words[0] === "branch" && words.slice(1).some(word =>
+      word === "--delete" || /^-[a-zA-Z]*[dD][a-zA-Z]*$/.test(word))) {
+    // -r elimina referencias remotas de seguimiento; no la rama local administrada.
+    if (words.slice(1).some(word => word === "--remotes" || /^-[a-zA-Z]*r[a-zA-Z]*$/.test(word))) return null;
+    branches = words.slice(1).filter(word => !word.startsWith("-"));
+  } else if (words[0] === "update-ref" && words.slice(1).some(word => ["-d", "--delete"].includes(word))) {
+    branches = words.slice(1).filter(word => !word.startsWith("-"));
+  } else return null;
+  const data = managedWorktrees(target).find(data =>
+    paths.some(path => canonicalPath(resolve(target, path)) === canonicalPath(data.directory) ||
+      (!path.includes("/") && path === basename(data.directory))) ||
+    branches.some(branch => branch === data.branch || branch === "refs/heads/" + data.branch));
+  if (!data) return null;
+  const helper = fileURLToPath(new URL("../../scripts/dev_worktree.py", import.meta.url));
+  let sha = "<SHA-main>";
+  try { sha = execFileSync("git", ["-C", data.project, "rev-parse", "refs/heads/main"],
+    { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}
+  return { blocked: true, regla: "git-cierre-administrado", detalle: data.id,
+    command: `python3 ${shellQuote(helper)} cerrar ${shellQuote(join(data.gestion, "inbox"))} --pedido ${shellQuote(data.id)} --integrado ${sha}` };
+}
+
 // Devuelve { blocked, regla, detalle }. cwd es el directorio de la sesión; `cd X` y `git -C X`
 // mueven el destino. isShared dice si un directorio es el árbol compartido (sharedCheckout).
 export function isGitBlocked(cmd, cwd, isShared) {
@@ -236,6 +286,8 @@ export function isGitBlocked(cmd, cwd, isShared) {
         if (option === "-C") target = value.startsWith("/") ? value : join(target, value);
       } else if (!["--no-pager", "--paginate", "--no-optional-locks"].includes(option)) break;
     }
+    const managed = managedCloseBlocked(words, target);
+    if (managed) return managed;
     if (words[0] === "commit") {
       for (let i = 1; i < words.length; i++) {
         if (["-m", "--message"].includes(words[i]) && i + 1 < words.length) words[++i] = "";
@@ -293,6 +345,9 @@ return {
         const gitRes = isGitBlocked(cmd, projectDir, isShared);
         if (gitRes.blocked) {
           logBloqueo(inboxRoot, sessionID, cmd, gitRes.regla, gitRes.detalle);
+          if (gitRes.regla === "git-cierre-administrado") {
+            throw new Error(`bloqueado: ${gitRes.regla} (${gitRes.detalle}). El PO debe cerrar con preview apagado e integración verificada. Ejecuta: ${gitRes.command}. Si falla, conserva el worktree y reporta el error; no uses force ni borres la rama a mano.`);
+          }
           throw new Error(
             `bloqueado: ${gitRes.regla} (${gitRes.detalle}) en el checkout compartido. Otros agentes tienen ` +
             `cambios sin commitear en este mismo árbol e índice; stash, checkout, restore, reset --hard, clean, ` +

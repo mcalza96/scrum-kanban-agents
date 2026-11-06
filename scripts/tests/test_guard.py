@@ -83,6 +83,70 @@ class GuardGitTest(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(temp, "marcador_inyeccion")))
             self.assertEqual(result.stdout.strip(), "true")
 
+    def test_cierre_manual_solo_para_worktrees_administrados(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = os.path.realpath(os.path.join(temp, "principal"))
+            managed = os.path.realpath(os.path.join(temp, "dev administrado"))
+            ordinary = os.path.realpath(os.path.join(temp, "otro"))
+            def git(*args):
+                return subprocess.check_output(["git", "-C", project, *args], text=True).strip()
+            subprocess.run(["git", "init", "-qb", "main", project], check=True)
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base")
+            git("worktree", "add", "-qb", "codex/dev/T-1", managed)
+            git("worktree", "add", "-qb", "ordinary", ordinary)
+            from pathlib import Path
+            gd = Path(Path(managed, ".git").read_text().strip()[8:])
+            data = {"id": "T-1", "directory": managed, "project": project,
+                    "branch": "codex/dev/T-1", "gestion": os.path.join(temp, "gestion")}
+            (gd / "scrum-dev.json").write_text(json.dumps(data))
+            cases = [
+                (f"git worktree unlock '{managed}'", project, True),
+                (f"git worktree remove --force --force '{managed}'", project, True),
+                (f"git -C '{project}' worktree remove '{managed}' --force", ordinary, True),
+                (f"cd '{project}' && git worktree unlock 'dev administrado'", ordinary, True),
+                ("git branch -D codex/dev/T-1", ordinary, True),
+                (f"cd '{project}' && git branch --delete --force codex/dev/T-1", ordinary, True),
+                ("git update-ref -d refs/heads/codex/dev/T-1", project, True),
+                ("git update-ref --delete refs/heads/codex/dev/T-1", project, True),
+                ("git branch -df codex/dev/T-1", project, True),
+                (f"git worktree unlock '{ordinary}'", project, False),
+                (f"git worktree remove --force '{ordinary}'", project, False),
+                ("git branch -D ordinary", project, False),
+                ("git branch -rd origin/codex/dev/T-1", project, False),
+                ("git update-ref -d refs/heads/ordinary", project, False),
+                ("git worktree list --porcelain", managed, False),
+                ("echo 'git branch -D codex/dev/T-1'", project, False),
+                ("python3 scripts/dev_worktree.py cerrar inbox --pedido T-1 --integrado HEAD", project, False),
+            ]
+            script = (f"const g=await import({json.dumps(os.path.abspath(GUARD))});"
+                      "console.log(JSON.stringify(JSON.parse(process.argv[1]).map(([cmd,cwd])=>g.isGitBlocked(cmd,cwd,()=>false))));")
+            out = subprocess.check_output(["node", "--input-type=module", "-e", script, json.dumps(cases)], text=True)
+            for case, result in zip(cases, json.loads(out)):
+                with self.subTest(command=case[0]):
+                    self.assertEqual(result["blocked"], case[2], result)
+                    if case[2]:
+                        self.assertEqual(result["regla"], "git-cierre-administrado")
+                        self.assertIn("cerrar '" + os.path.join(temp, "gestion", "inbox") + "'", result["command"])
+                        self.assertIn("--pedido 'T-1' --integrado " + git("rev-parse", "main"), result["command"])
+            # El hook propaga el rechazo y entrega la instrucción correcta, sin ejecutar Git.
+            hook = (f"const {{createGuard}}=await import({json.dumps(os.path.abspath(GUARD))});"
+                    "let before;await createGuard(process.argv[1]).setup({location:{directory:process.argv[1]},"
+                    "tool:{hook:async(name,fn)=>{if(name==='execute.before')before=fn;}}});"
+                    "try{await before({tool:'shell',input:{command:'git branch -D codex/dev/T-1'}});"
+                    "console.log('permitido');}catch(e){console.log(e.message);}")
+            out = subprocess.check_output(["node", "--input-type=module", "-e", hook, project], text=True)
+            self.assertIn("bloqueado: git-cierre-administrado", out)
+            self.assertIn("El PO debe cerrar", out)
+            self.assertIn("--pedido 'T-1'", out)
+            # No se perdió trabajo ni se modificaron refs al inspeccionar los comandos.
+            self.assertTrue(Path(managed).is_dir())
+            self.assertEqual(git("rev-parse", "codex/dev/T-1"), git("rev-parse", "main"))
+            # Incluso un directorio borrado por fuera de Git conserva la protección de su rama.
+            shutil.rmtree(managed)
+            out = subprocess.check_output(["node", "--input-type=module", "-e", script,
+                                           json.dumps([("git branch -D codex/dev/T-1", project)])], text=True)
+            self.assertTrue(json.loads(out)[0]["blocked"])
+
     def test_el_barrido_no_se_apaga(self):
         # 2026-11-05: el plan de pausa de ORDEN-5 hizo bootout del barrido y nadie vio al dueño parado.
         cases = [("launchctl bootout gui/501/cl.jitdata.portafolio.sweep", True),
