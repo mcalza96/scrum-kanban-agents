@@ -19,7 +19,8 @@ import { watch } from "node:fs";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { raizGestion } from "../lib/gestion.js";
+import { fresh } from "../lib/load.js";
+const { raizGestion } = await fresh(new URL("../lib/gestion.js", import.meta.url));
 
 export function createInbox(PROJECT) {
 // The mailbox is read from .scrum.toml on every use, never once at load: the service outlives a

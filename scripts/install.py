@@ -10,7 +10,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 const skill = process.env.SCRUM_SKILL || join(homedir(), ".agents/skills/scrum-kanban-agents");
-export const load = (file) => import(pathToFileURL(join(skill, file)).href);
+const { fresh } = await import(pathToFileURL(join(skill, "adapters/lib/load.js")).href);
+export const load = (file) => fresh(pathToFileURL(join(skill, file)));
 '''
 PY_ENTRY = '''#!/usr/bin/env python3
 # Generado por scrum-kanban-agents/scripts/install.py. Lógica en la skill.
