@@ -1,5 +1,5 @@
 // opencode (v2) plugin: every PM turn starts with the unread messages of the project's inbox/.
-// Install: copy to <project>/.opencode/plugin/inbox.js. See references/inbox.md.
+// Install: scripts/install.py creates an entrypoint; this implementation stays in the skill.
 //
 // It appends `inbox.py pending` to the user's message right before the model call. The line is
 // not stored in the session, so it neither grows the history nor shows up after it was acked.
@@ -17,18 +17,17 @@
 import { execFileSync, spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { raizGestion } from "../lib/gestion.js";
 
-const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+export function createInbox(PROJECT) {
 // The mailbox is read from .scrum.toml on every use, never once at load: the service outlives a
 // move of the mailbox, and on 2026-11-05 a path fixed at 11:55 kept writing to the old folder and
 // recreated it every minute after .scrum.toml changed at 12:54, while nobody watched the new one.
 const root = () => join(raizGestion(PROJECT), "inbox");
 const SCRIPT = process.env.INBOX_PY ||
-  join(homedir(), ".claude/skills/scrum-kanban-agents/scripts/inbox.py");
+  fileURLToPath(new URL("../../scripts/inbox.py", import.meta.url));
 const WAKE = join(dirname(SCRIPT), "../adapters/opencode/wake.py");
 const LANZAR = join(dirname(SCRIPT), "../adapters/opencode/lanzar.py");
 const timers = new Map();
@@ -67,7 +66,7 @@ function pending() {
   }
 }
 
-export default {
+return {
   id: "scrum-kanban-agents.inbox",
   setup: async (api) => {
     // Watch the mailbox and its launch queue; every minute re-read .scrum.toml and re-arm the
@@ -103,3 +102,6 @@ export default {
     });
   },
 };
+
+}
+export default createInbox(process.cwd());

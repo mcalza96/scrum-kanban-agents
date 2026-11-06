@@ -111,6 +111,40 @@ def log(root: str, pm: str, what: str) -> None:
         f.write(f"{stamp} {pm} {what}\n")
 
 
+BLOQUEO_STALE_MIN = 10
+BLOQUEO_LOG = ".wake-bloqueos.log"
+
+
+def _notify_po_bloqueo(root: str, pm: str, msgs: list, reason: str) -> None:
+    """Una alerta por PM/mensaje. El lock cubre comprobar, entregar y marcar."""
+    if pm == "PO":  # una alerta al PO no genera otra alerta sobre sí misma
+        return
+    with open(os.path.join(root, BLOQUEO_LOG), "a+", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        sent = {line.strip() for line in f}
+        for m in msgs:
+            key = f"{pm} {m.id}"
+            if key in sent:
+                continue
+            try:
+                inbox.send(root, "PO", "wake", f"[bloqueo] {pm} {m.id} {reason} ({m.sent}). "
+                           "Revisa su sesión o reasigna el mensaje.")
+            except Exception as e:
+                log(root, pm, f"bloqueo PO failed {m.id}: {e}")
+                continue  # un envío fallido sigue pendiente
+            f.write(key + "\n")
+            f.flush()
+            sent.add(key)
+
+
+def _stale_bloqueos(root: str, pm: str, msgs: list) -> None:
+    now = datetime.datetime.now().astimezone()
+    stale = [m for m in msgs if (inbox.age_hours(m.sent, now) or 0) * 60 > BLOQUEO_STALE_MIN]
+    if stale:
+        _notify_po_bloqueo(root, pm, stale, f"sin leer >{BLOQUEO_STALE_MIN}min")
+
+
 def commands(data: str) -> list[str]:
     """The shell commands a stored message ran: tool inputs only, never their output, since
     `inbox.py pending` prints a read command for every mailbox."""
@@ -768,8 +802,16 @@ def _loop(db, root, pm, wait, poll, send) -> str:
         if not msgs:
             what = "nothing new unread"
             break
+        try:
+            _stale_bloqueos(root, pm, msgs)
+        except Exception:
+            pass  # una alerta auxiliar nunca impide despertar al destinatario
         sid = find_session(db, root, pm)
         if not sid:
+            try:
+                _notify_po_bloqueo(root, pm, msgs, "skipped sin sesión")
+            except Exception:
+                pass
             what = "skipped: no opencode session has run `inbox.py read` on this mailbox"
             log(root, pm, what)
             break

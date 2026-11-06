@@ -8,7 +8,6 @@
 import { execSync } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { raizGestion } from "../lib/gestion.js";
 
 const SLEEP_UMBRAL = 5; // segundos, configurable por dueño
@@ -21,12 +20,12 @@ export function isLaunchctlBlocked(cmd) {
   return /(^|[;&|(]\s*|\bsudo\s+)launchctl\s+(bootout|unload|disable|remove|stop)\b/m.test(run);
 }
 
-function inboxRootFrom(ctx) {
+function inboxRootFrom(ctx, project) {
   // Gestion-aware: inbox vive en raizGestion(repo)/inbox
   function gestionInbox(dir) {
     try { return join(raizGestion(dir), "inbox"); } catch { return join(dir, "inbox"); }
   }
-  // Intenta ctx.location.directory (v2), si no, deduce de __dirname (copia en .opencode/plugin)
+  // Usa la ubicación de la sesión; la entrada instalada entrega el proyecto como respaldo.
   try {
     if (ctx && ctx.location && ctx.location.directory) {
       const cand = gestionInbox(ctx.location.directory);
@@ -39,12 +38,11 @@ function inboxRootFrom(ctx) {
       return cand;
     }
   } catch {}
-  // fallback: resolver relativo al archivo (funciona para .opencode/plugin/guard.js -> ../../inbox)
+  // Respaldo explícito del proyecto, independiente de dónde se instala la skill.
   try {
-    const proj = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const proj = project;
     const r = gestionInbox(proj);
     if (existsSync(r)) return r;
-    // para skill template (no se ejecuta), igual devuelve ruta relativa
     return r;
   } catch {
     return resolve("inbox");
@@ -225,10 +223,11 @@ export function isGitBlocked(cmd, cwd, isShared) {
 // memoria de PIDs lanzados por sesión (via tool.execute.after)
 const launchedBySession = new Map(); // sessionID -> Set(pid)
 
-export default {
+export function createGuard(project) {
+return {
   id: "scrum-kanban-agents.guard",
   setup: async (ctx) => {
-    const inboxRoot = inboxRootFrom(ctx);
+    const inboxRoot = inboxRootFrom(ctx, project);
 
     // hook antes de ejecutar herramienta
     await ctx.tool.hook("execute.before", async (event) => {
@@ -251,7 +250,7 @@ export default {
         }
 
         // --- git en el checkout compartido ---
-        const projectDir = (ctx.location && ctx.location.directory) || process.cwd();
+        const projectDir = (ctx.location && ctx.location.directory) || project;
         const gitRes = isGitBlocked(cmd, projectDir, sharedCheckout(projectDir));
         if (gitRes.blocked) {
           logBloqueo(inboxRoot, sessionID, cmd, gitRes.regla, gitRes.detalle);
@@ -361,7 +360,7 @@ export default {
         try {
           const cmd = (event.input && event.input.command) || "";
           const sessionID = event.sessionID || "unknown";
-          logError(inboxRootFrom(ctx), sessionID, cmd, e);
+          logError(inboxRootFrom(ctx, project), sessionID, cmd, e);
         } catch {}
         // no bloquea
       }
@@ -395,3 +394,6 @@ export default {
     });
   },
 };
+
+}
+export default createGuard(process.cwd());

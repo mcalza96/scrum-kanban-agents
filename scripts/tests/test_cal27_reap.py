@@ -7,8 +7,8 @@ import unittest
 import time
 
 # skill paths
-SKILL_SCRIPTS = os.path.expanduser("~/.claude/skills/scrum-kanban-agents/scripts")
-SKILL_ADAPTER = os.path.expanduser("~/.claude/skills/scrum-kanban-agents/adapters/opencode")
+SKILL_SCRIPTS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SKILL_ADAPTER = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../adapters/opencode"))
 sys.path.insert(0, SKILL_SCRIPTS)
 sys.path.insert(0, SKILL_ADAPTER)
 import inbox  # noqa: E402

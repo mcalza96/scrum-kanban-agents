@@ -7,7 +7,8 @@ SKILL=$(cd "$(dirname "$0")/.." && pwd)
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 mkdir -p "$DIR/.opencode/plugin"
-cp "$SKILL/adapters/opencode/inbox.js" "$DIR/.opencode/plugin/inbox.js"
+python3 "$SKILL/scripts/install.py" "$DIR"
+export SCRUM_SKILL="$SKILL"
 (cd "$DIR" && git init -q)
 # the injected line names the mailbox, not the text: the mailbox name is the keyword
 KEY="PM-smoke-$$"

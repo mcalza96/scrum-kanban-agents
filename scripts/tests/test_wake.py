@@ -49,6 +49,14 @@ class WakeTest(unittest.TestCase):
     def wake(self, **kw):
         return wake.run(self.root, "PM-ui", send=self.send, wait=0, poll=0, **kw)
 
+    def test_alerta_rota_no_impide_despertar(self):
+        from unittest.mock import patch
+        self.session("ses_ui", "python3 inbox.py read inbox PM-ui", 1)
+        inbox.send(self.root, "PM-ui", "PO", "tarea")
+        with patch.object(wake, "_stale_bloqueos", side_effect=OSError("log roto")):
+            self.wake()
+        self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
+
     def test_finds_the_session_that_read_the_mailbox(self):
         self.session("ses_ui", "python3 inbox.py read inbox PM-ui", 1)        # relative path
         self.session("ses_ui2", "python3 inbox.py read inbox/ PM-ui-2", 2)    # another mailbox

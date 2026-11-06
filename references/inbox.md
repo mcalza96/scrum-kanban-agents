@@ -66,7 +66,7 @@ and nearly all of them were status echoes (D-282).
 
 1. **Every PM turn starts with the pending line.** A hook prints `inbox.py pending inbox/`, one
    line per mailbox with unread messages and nothing when there are none:
-   - **opencode:** copy `adapters/opencode/inbox.js` to `<project>/.opencode/plugin/inbox.js` and `adapters/lib/gestion.js` to `<project>/.opencode/lib/gestion.js` (a helper, not a plugin: opencode loads every file in `plugin/` as one).
+   - **opencode:** run `python3 <skill>/scripts/install.py <project>`. This writes minimal plugin and Python entrypoints, never copies implementations. They load `~/.agents/skills/scrum-kanban-agents` (or `SCRUM_SKILL`). Keep one skill installation; other agent directories link to it. Use `--replace` only after comparing old copies; use `--check` as the regression gate. Management repositories hold tickets and evidence, not adapter copies.
      It appends the line to the user's message right before the model call. The line is not
      stored in the session, and sessions with a parent (one-shot devs) never get it. After every
      `opencode upgrade`, run `scripts/opencode_inbox_smoke.sh`: the plugin API it relies on is not
