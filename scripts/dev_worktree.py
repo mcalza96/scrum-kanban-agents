@@ -207,6 +207,8 @@ def register_preview(root: str, request_id: str, pr: int, pid: int | None, port:
         git(entry["project"], "check-ref-format", "--branch", branch)
         if data.get("status") != "delivered":
             raise ValueError("solo una entrega pendiente admite registrar preview")
+        if "pr" in data and (data["pr"] != pr or data.get("pr_branch", entry["branch"]) != branch):
+            raise ValueError("ya existe un PR distinto registrado; no se sobrescribe")
         preview = None
         if pid is not None:
             if directory is None or port is None or sha is None:

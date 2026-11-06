@@ -258,3 +258,20 @@ class DevWorktreeTest(unittest.TestCase):
         with patch('preview_process.stop',side_effect=ValueError('preview aún activo')) as stop:
             with self.assertRaisesRegex(ValueError,'preview aún activo'):self.close(e)
             stop.assert_called_once_with(data['preview'])
+
+    def test_sync_main_sin_cambiar_checkout_ni_indice_compartido(self):
+        e=self.launch();sha=self.commit(e)
+        self.git('switch','-c','shared')
+        (self.project/'ajeno.txt').write_text('edición de otro actor')
+        self.git('add','ajeno.txt')
+        before=self.git('diff','--cached')
+        self.git('update-ref','refs/remotes/origin/main',sha)
+        original=dw.git
+        def call(repo,*args):
+            if args==('fetch','origin','main'):return ''
+            return original(repo,*args)
+        with patch.object(dw,'git',side_effect=call):dw.sync_main(str(self.project),sha)
+        self.assertEqual(self.git('rev-parse','main'),sha)
+        self.assertEqual(self.git('rev-parse','HEAD'),e['base'])
+        self.assertEqual(self.git('diff','--cached'),before)
+        self.assertEqual((self.project/'ajeno.txt').read_text(),'edición de otro actor')
