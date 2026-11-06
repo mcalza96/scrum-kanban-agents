@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sys
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 
 try:
@@ -289,7 +290,53 @@ def _infer_expected(ticket: str, prompt: str) -> str | None:
         return None
 
 
-def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = None) -> str:
+@contextmanager
+def launch_lock(root: str):
+    """El mismo candado protege encolado, reserva de cupo y registro de sesión."""
+    with open(os.path.join(root, ".lanzar", ".lanzar.lock"), "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
+def write_request(path: str, data: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({k: v for k, v in data.items() if not k.startswith("_")}, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def launch_records(root: str) -> list[dict]:
+    try:
+        with open(os.path.join(root, ".lanzar", "log"), encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except FileNotFoundError:
+        return []
+
+
+def _review_pending(root: str, entry: dict, db_path: str) -> bool:
+    """Una entrega o un turno exitoso requiere devolución explícita del PM."""
+    expected = entry.get("expected")
+    if expected:
+        report = os.path.join(os.path.dirname(os.path.abspath(root)), expected)
+        since = datetime.datetime.fromisoformat(entry["ts"]).timestamp()
+        if os.path.isfile(report) and os.path.getmtime(report) >= since:
+            return True
+    if os.path.isfile(db_path) and entry.get("session"):
+        import sqlite3
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as db:
+            row = db.execute(
+                "select time_busy, time_idle from session_v2 where id = ?", (entry["session"],)
+            ).fetchone()
+            if row and (row[1] or 0) >= (row[0] or 0):
+                outcome = db.execute(
+                    "select data from session_message where session_id = ? and type = 'idle' "
+                    "order by time_created desc limit 1", (entry["session"],)
+                ).fetchone()
+                return bool(outcome and json.loads(outcome[0]).get("outcome") == "succeeded")
+    return False
+
+
+def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = None, *, retry: bool = False) -> str:
     """Encola un pedido en inbox/.lanzar/. Vuelve al instante con el id del pedido."""
     sender = sender or pm
     if not NAME.match(pm):
@@ -324,12 +371,7 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
     os.makedirs(qdir, exist_ok=True)
     # un ticket no se encola dos veces mientras haya uno en cola,
     # ya tomado (.claim) o con dev vivo (log + DB busy). Segundo intento se rechaza.
-    lock_path = os.path.join(qdir, ".lanzar.lock")
-    with open(lock_path, "a+", encoding="utf-8") as lock_f:
-        try:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
-        except Exception:
-            pass
+    with launch_lock(root):
         # 1) en cola o reclamado (.json y .json.claim)
         for pat in (os.path.join(qdir, "*.json"), os.path.join(qdir, "*.json.claim")):
             for p in glob.glob(pat):
@@ -379,24 +421,29 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
                     raise
                 except Exception:
                     pass
+        records = launch_records(root)
+        previous = [e for e in records if e.get("ticket") == ticket]
+        if previous and not retry:
+            db_path = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
+            if _review_pending(root, previous[-1], db_path):
+                raise ValueError(f"{ticket} tiene una entrega pendiente de revisión; solo una devolución explícita del PM permite --retry")
         stamp = datetime.datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
         # unique id: ticket-pm-stamp-rand
         uniq = f"{ticket}--{pm}--{stamp}-{os.getpid()}"
         path = os.path.join(qdir, f"{uniq}.json")
         # ensure not overwriting
         counter = 0
-        while os.path.exists(path):
+        known_ids = {e.get("id") for e in records}
+        while os.path.exists(path) or os.path.basename(path)[:-5] in known_ids:
             counter += 1
             path = os.path.join(qdir, f"{uniq}-{counter}.json")
+        uniq = os.path.basename(path)[:-5]
         expected = _infer_expected(ticket, prompt)
         data = {"id": uniq, "pm": pm, "ticket": ticket, "prompt": prompt, "from": sender,
-                "created": now(), "status": "pending"}
+                "created": now(), "status": "pending", "retry": retry}
         if expected:
             data["expected"] = expected
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-        os.rename(tmp, path)
+        write_request(path, data)
         return uniq
 
 
@@ -447,13 +494,14 @@ def main(argv: list[str] | None = None) -> int:
     lz.add_argument("--ticket", required=True, help="id del ticket, ej. CAL-25")
     lz.add_argument("--prompt", required=True, help="ruta al prompt del dev")
     lz.add_argument("--from", dest="sender", default=None, help="quien pide el lanzamiento (por defecto, el PM)")
+    lz.add_argument("--retry", action="store_true", help="devolución explícita del PM tras revisar una entrega; no salta pedidos activos o inciertos")
     args = ap.parse_args(argv)
 
     try:
         if args.cmd not in ("lanzar", "hook"):  # lanzar has its own check; a hook never fails
             args.root = mailbox_arg(args.root, create=args.cmd == "send")
         if args.cmd == "lanzar":
-            print(lanzar(args.root, args.pm, args.ticket, args.prompt, args.sender))
+            print(lanzar(args.root, args.pm, args.ticket, args.prompt, args.sender, retry=args.retry))
             return 0
         elif args.cmd == "send":
             print(send(args.root, args.to, args.sender, args.text))

@@ -30,6 +30,8 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
+import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
@@ -65,52 +67,32 @@ def _load_queue(root: str) -> list[dict]:
 
 
 def _active_counts(root: str, db_path: str = DB) -> tuple[int, dict[str, int], list[dict]]:
-    """Cuenta sesiones activas (busy) según log y DB. Retorna (global, por_pm, entries).
-    Si no hay DB, cuenta por log sin verificar busy (para tests)."""
-    lp = log_path(root)
-    entries = []
-    try:
-        with open(lp, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except ValueError:
-                    continue
-    except FileNotFoundError:
-        return 0, {}, []
-    # keep only recent active? launch log is append-only; mark done when session idle.
-    # For now, count those whose session still busy in DB.
-    if not os.path.exists(db_path):
-        # tests without DB: count all as active (caller mocks elsewhere)
-        counts: dict[str, int] = {}
-        for e in entries:
-            counts[e.get("pm", "")] = counts.get(e.get("pm", ""), 0) + 1
-        return len(entries), counts, entries
-    try:
-        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except Exception:
-        return 0, {}, entries
+    """Cuenta sesiones ocupadas y reservas todavía sin sesión, sin duplicarlas."""
+    entries = inbox.launch_records(root)
+    reservations = []
+    logged_ids = {e.get("id") for e in entries}
+    for path in glob.glob(os.path.join(qdir_of(root), "*.json.claim")):
+        with open(path, encoding="utf-8") as f:
+            entry = json.load(f)
+        if entry.get("id") not in logged_ids:
+            reservations.append(entry)
     active = []
-    counts = {}
-    for e in entries:
-        sid = e.get("session")
-        if not sid:
-            continue
+    if not os.path.exists(db_path):
+        active = entries  # sin runtime observable, no inventar cupos libres
+    else:
+        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
-            row = db.execute("select time_busy, time_idle from session_v2 where id = ?", (sid,)).fetchone()
-            if not row:
-                continue
-            busy = (row[0] or 0) > (row[1] or 0)
-            if busy:
-                active.append(e)
-                pm = e.get("pm", "")
-                counts[pm] = counts.get(pm, 0) + 1
-        except Exception:
-            continue
-    db.close()
+            for e in entries:
+                row = db.execute("select time_busy, time_idle from session_v2 where id = ?", (e.get("session"),)).fetchone()
+                if (row and (row[0] or 0) > (row[1] or 0)) or (row is None and e.get("title")):
+                    active.append(e)
+        finally:
+            db.close()
+    active += reservations
+    counts: dict[str, int] = {}
+    for e in active:
+        pm = e.get("pm", "")
+        counts[pm] = counts.get(pm, 0) + 1
     return len(active), counts, active
 
 
@@ -144,50 +126,71 @@ def _append_log(root: str, entry: dict) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def try_launch_one(
-    root: str,
-    opencode_bin: str | None = None,
-    runner=None,
-    db_path: str = DB,
-) -> str | None:
-    """Intenta lanzar el primer pedido en cola que cabe en los topes. Retorna session id o None."""
-    q = _load_queue(root)
-    if not q:
-        return None
-    gcount, _, _ = _active_counts(root, db_path)
-    # also reap failed sessions that died without report
-    _reap_failed(root, db_path)
-    # recount after reap
-    gcount, _, _ = _active_counts(root, db_path)
-    paused = inbox.pause(root)
-    for entry in q:
-        pm = entry.get("pm", "")
-        if paused and pm != paused["owner"]:
-            continue  # queued, not lost: it goes when the pause is lifted
-        if gcount >= MAX_GLOBAL:
-            break  # global lleno: nada más cabe (FIFO estricto si cabeza bloquea global)
-            # pero si permitimos saltar, usar continue; elegimos FIFO estricto para simplicidad
-        # claim atómico: solo un lanzador puede tomar el archivo
-        claimed = entry["_path"] + ".claim"
-        try:
-            os.rename(entry["_path"], claimed)
-            entry["_path"] = claimed
-        except FileNotFoundError:
-            continue  # otro proceso ya lo tomó
-        except OSError:
-            continue
-        # launch this one
-        sid = _launch_entry(root, entry, opencode_bin, runner)
-        # si falló sin session, devuelve el archivo a cola para reintento manual (no loop)
-        if not sid and os.path.exists(claimed):
+def _record_session(root: str, entry: dict, sid: str) -> str:
+    # También se llama desde la reconciliación: el registro por pedido es idempotente.
+    with inbox.launch_lock(root):
+        _record_session_locked(root, entry, sid)
+    return sid
+
+
+def _record_session_locked(root: str, entry: dict, sid: str) -> None:
+    prior = next((e for e in inbox.launch_records(root) if e.get("id") == entry["id"]), None)
+    if prior and prior["session"] != sid:
+        raise ValueError(f"pedido {entry['id']} asociado a dos sesiones; requiere revisión")
+    if not prior:
+        record = {k: entry[k] for k in ("pm", "ticket", "prompt", "from", "id", "expected", "retry", "title") if k in entry}
+        record.update(ts=datetime.datetime.now().astimezone().isoformat(), session=sid)
+        _append_log(root, record)
+    try:
+        os.remove(entry["_path"])
+    except FileNotFoundError:
+        pass
+
+
+def _reconcile_claims(root: str, db_path: str) -> None:
+    # Solo recuperar una sesión con la identidad exacta del pedido, nunca por ticket.
+    records = {e.get("id"): e for e in inbox.launch_records(root)}
+    for path in glob.glob(os.path.join(qdir_of(root), "*.json.claim")):
+        with open(path, encoding="utf-8") as f:
+            entry = json.load(f)
+        entry["_path"] = path
+        prior = records.get(entry.get("id"))
+        sid = prior.get("session") if prior else _fallback_session_id(db_path, entry)
+        if sid:
+            _record_session_locked(root, entry, sid)
+        elif entry.get("launcher_pid") and entry.get("status") == "launching":
             try:
-                orig = claimed[:-6]
-                os.rename(claimed, orig)
-                _notify_launch_error(root, entry, "re-encolado tras fallo sin session")
-            except OSError:
-                pass
-        return sid
-    return None
+                os.kill(entry["launcher_pid"], 0)
+            except ProcessLookupError:
+                entry.update(status="uncertain", error="el lanzador terminó sin registrar sesión")
+                inbox.write_request(path, entry)
+                _notify_launch_error(root, entry, "inicio incierto tras caída; reserva retenida, requiere reconciliación")
+            except PermissionError:
+                pass  # No demostrar la muerte del proceso no permite liberar su reserva.
+
+
+def try_launch_one(root: str, opencode_bin: str | None = None, runner=None, db_path: str = DB) -> str | None:
+    """Reserva bajo candado; ejecutar y esperar al CLI nunca retiene ese candado."""
+    if not os.path.isdir(root):
+        raise FileNotFoundError(f"no existe el buzón {root}")
+    os.makedirs(qdir_of(root), exist_ok=True)
+    with inbox.launch_lock(root):
+        _reconcile_claims(root, db_path)
+        gcount, _, _ = _active_counts(root, db_path)
+        paused = inbox.pause(root)
+        entry = next((e for e in _load_queue(root)
+                      if not paused or e.get("pm") == paused["owner"]), None)
+        if entry is None or gcount >= MAX_GLOBAL:
+            return None
+        claimed = entry["_path"] + ".claim"
+        entry.update(status="launching", launcher_pid=os.getpid(),
+                     title=f"dev {entry['ticket']} [{entry['id']}]",
+                     directory=os.path.dirname(os.path.abspath(root)))
+        inbox.write_request(entry["_path"], entry)
+        os.rename(entry["_path"], claimed)
+        entry["_path"] = claimed
+    _reap_failed(root, db_path)
+    return _launch_entry(root, entry, opencode_bin, runner, db_path)
 
 
 def _has_close_block(text: str, pm: str) -> bool:
@@ -209,110 +212,105 @@ def _ensure_close_block(text: str, pm: str, root: str, ticket: str) -> str:
     return text.rstrip() + _close_block(pm, root, ticket)
 
 
-def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner) -> str | None:
-    prompt_path = entry.get("prompt", "")
+def _session_id(line: str) -> str | None:
     try:
-        with open(prompt_path, encoding="utf-8") as f:
-            prompt_text = f.read()
-    except Exception as e:
-        _notify_launch_error(root, entry, str(e))
-        try:
-            os.remove(entry["_path"])
-        except FileNotFoundError:
-            pass
+        event = json.loads(line)
+        sid = event.get("sessionID") if isinstance(event, dict) else None
+        return sid if isinstance(sid, str) and sid.startswith("ses_") else None
+    except ValueError:
         return None
-    ticket = entry.get("ticket", "CAL-?")
-    # M-88 arreglo 1: todo prompt lleva el bloque de cierre con PM y raíz resueltos; si falta lo agrega
-    prompt_text = _ensure_close_block(prompt_text, entry.get("pm", ""), root, ticket)
-    title = f"dev {ticket}"
-    # directory: repo that holds inbox/
-    repo = os.path.dirname(os.path.abspath(root))
-    opencode = opencode_bin or shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
-    cmd = [opencode, "run", "--title", title, "--format", "json"]
-    # model/agent: use defaults
-    if runner is None:
-        def runner(cmd, text):
-            proc = subprocess.Popen(cmd + [text], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            try:
-                out, err = proc.communicate(timeout=300)
-            except subprocess.TimeoutExpired:
-                # opencode run debería volver al instante con sessionID; si colgó 5 min,
-                # matamos y buscamos id parcial antes de reintentar — evita duplicar pedido
-                try:
-                    proc.kill()
-                    out, err = proc.communicate(timeout=5)
-                except Exception:
-                    out, err = "", "timeout 300s sin sessionID"
-                # si hubo sessionID parcial, lo consideramos éxito abajo
-            return out, err, proc.returncode
+
+
+def _stream_run(cmd: list[str], text: str, repo: str, on_session) -> tuple[str, str, int]:
+    # Leer stdout mientras corre: registrar el ID no debe esperar al fin del turno.
+    # stderr va a un archivo temporal para no bloquearse si su pipe se llena.
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors:
+        proc = subprocess.Popen(cmd + [text], cwd=repo, stdout=subprocess.PIPE,
+                                stderr=errors, text=True)
+        timer = threading.Timer(300, proc.kill)  # conserva el límite existente del CLI
+        timer.start()
+        try:
+            with proc.stdout:
+                for line in proc.stdout:
+                    sid = _session_id(line)
+                    if sid:
+                        on_session(sid)
+            code = proc.wait()
+        finally:
+            timer.cancel()
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+        errors.seek(0)
+        return "", errors.read(), code
+
+
+def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner, db_path: str = DB) -> str | None:
+    sid = None
+
+    def observed(value: str) -> None:
+        nonlocal sid
+        if sid is None:
+            sid = _record_session(root, entry, value)
+        elif value != sid:
+            raise ValueError("el CLI devolvió dos sesiones para el mismo pedido")
 
     try:
-        out, err, code = runner(cmd, prompt_text)
-        sid = None
+        with open(entry["prompt"], encoding="utf-8") as f:
+            prompt_text = _ensure_close_block(f.read(), entry.get("pm", ""), root, entry["ticket"])
+        opencode = opencode_bin or shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
+        cmd = [opencode, "run", "--title", entry["title"], "--format", "json"]
+        if runner is None:
+            out, err, code = _stream_run(cmd, prompt_text, entry["directory"], observed)
+        else:
+            out, err, code = runner(cmd, prompt_text)
         for line in (out or "").splitlines():
-            try:
-                j = json.loads(line)
-                if j.get("sessionID"):
-                    sid = j["sessionID"]
-                    break
-            except ValueError:
-                continue
-        if not sid:
-            # fallback: try to parse session id from stderr or look at DB newest session
-            sid = _fallback_session_id(db_path, ticket)
-        if not sid:
-            _notify_launch_error(root, entry, err or out or "no session id")
-            return None
-        # trazabilidad — registra entrega esperada sin bloquear
-        expected = entry.get("expected") or inbox._infer_expected(ticket, prompt_path)
-        log_entry = {
-            "ts": datetime.datetime.now().astimezone().isoformat(),
-            "pm": entry.get("pm"),
-            "ticket": ticket,
-            "session": sid,
-            "prompt": prompt_path,
-            "from": entry.get("from"),
-            "id": entry.get("id"),
-        }
-        if expected:
-            log_entry["expected"] = expected
-        _append_log(root, log_entry)
-        # el pedido ya estaba en .claim, lo borramos
-        try:
-            os.remove(entry["_path"])
-        except FileNotFoundError:
-            pass
+            value = _session_id(line)
+            if value:
+                observed(value)
+        if sid is None:
+            recovered = _fallback_session_id(db_path, entry)
+            if recovered:
+                observed(recovered)
+        if sid is None:
+            raise RuntimeError(err or f"CLI terminó con código {code} sin sessionID")
         return sid
     except Exception as e:
-        _notify_launch_error(root, entry, str(e))
-        # deja el .claim para inspección; no re-encola automático para no duplicar
-        return None
+        if sid is None:
+            # No hay prueba de que no haya empezado: conservar reserva y bloquear duplicados.
+            with inbox.launch_lock(root):
+                # Otro lanzador pudo reconciliarlo mientras esperábamos al CLI.
+                prior = next((r for r in inbox.launch_records(root) if r.get("id") == entry["id"]), None)
+                if prior:
+                    return prior["session"]
+                entry.update(status="uncertain", error=str(e))
+                inbox.write_request(entry["_path"], entry)
+            _notify_launch_error(root, entry, f"inicio incierto, no reintentar automáticamente: {e}")
+        return sid
 
 
-def _fallback_session_id(db_path: str, ticket: str) -> str | None:
-    if not os.path.exists(db_path):
+def _fallback_session_id(db_path: str, entry: dict) -> str | None:
+    if not entry.get("title") or not os.path.exists(db_path):
         return None
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        row = db.execute("select id from session_v2 where title = ? order by time_created desc limit 1", (f"dev {ticket}",)).fetchone()
+        rows = db.execute("select id from session_v2 where title = ?", (entry["title"],)).fetchall()
+        if len(rows) > 1:
+            raise ValueError(f"más de una sesión para {entry['id']}; requiere revisión")
+        return rows[0][0] if rows else None
+    finally:
         db.close()
-        return row[0] if row else None
-    except Exception:
-        return None
 
 
 def _notify_launch_error(root: str, entry: dict, msg: str) -> None:
     try:
-        inbox.send(root, (entry.get("pm") or "PO"), "lanzador", f"{entry.get('ticket')} no lanzó: {msg} (sesión sin id)")
+        inbox.send(root, (entry.get("pm") or "PO"), "lanzador", f"[bloqueo] {entry.get('ticket')}: {msg}")
     except Exception:
         pass
 
 
 def _reap_failed(root: str, db_path: str = DB) -> None:
     """Si una sesión activa terminó failed sin mandar buzón, avisa al PM."""
-    _, _, active = _active_counts(root, db_path)
-    # But _active_counts already filters busy only; failed sessions are idle, so we need log entries not active?
-    # Check all log entries that are idle+failed.
     lp = log_path(root)
     try:
         with open(lp, encoding="utf-8") as f:

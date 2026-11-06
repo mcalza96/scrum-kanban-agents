@@ -72,6 +72,17 @@ in one place.
 
 ## Lanzamiento desacoplado (CAL-25)
 
+El ID del pedido queda en el título de la sesión y en el log. Un arranque reserva cupo antes de
+ejecutar; el ID se registra apenas llega y los arranques inciertos conservan su `.json.claim`.
+El siguiente intento del lanzador reconcilia esos claims por identidad exacta, sin relanzarlos.
+Si no se puede identificar una sesión, el PM recibe el bloqueo: no debe borrar el claim ni
+reenviarlo sin comprobar en el runtime qué ocurrió. Los claims anteriores a este mecanismo
+no se adjudican a una sesión por parecido de título.
+
+Una entrega existente o una sesión terminada con éxito bloquea otro encargo del mismo ticket.
+Después de revisar y devolver el trabajo, el PM usa `inbox.py lanzar ... --retry` con el prompt
+de devolución. El indicador queda registrado; no permite saltar un pedido activo o incierto.
+
 El PM encola devs con `inbox.py lanzar inbox/ --pm PM-x --ticket CAL-n --prompt <ruta>` en
 `inbox/.lanzar/`; el plugin del servicio los lanza con `opencode run --title "dev <ticket>"`.
 `inbox/.lanzar/log` guarda la trazabilidad (pm, ticket, session, prompt); el título `dev <ticket>`
