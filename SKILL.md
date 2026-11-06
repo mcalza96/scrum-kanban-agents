@@ -145,9 +145,11 @@ pending → in progress → reported → closed
     El PM verifica, hace push de la rama y abre el PR; el PO autoriza y ejecuta el merge a main.
     El PO presenta una vista previa localhost del SHA del PR con los cambios a revisar
     (`references/pr-preview.md`). Tras el merge apaga su preview, sincroniza main y ejecuta
-    `dev_worktree.py cerrar --integrado <SHA>`:
+    `dev_worktree.py cerrar <gestion/inbox> --pedido <ID> --integrado <SHA> --sincronizar`:
     exige sesión idle, entrega integrada y gate verde del SHA actual antes de eliminar worktree
-    y rama. El barrido genérico conserva estas entregas. Los stashes son globales: no se mutan
+    y rama. El PO registra antes el PR y preview con `registrar-preview` (o `--sin-preview`
+    explícito); el cierre verifica identidad del proceso, apagado y puerto libre. Si falla,
+    conserva la entrega. No se sustituye por unlock/remove/branch manuales. El barrido genérico conserva estas entregas. Los stashes son globales: no se mutan
     tampoco desde un worktree.
 
     **The shared checkout is nobody's to clean.** Several agents work in the same checkout, tree,

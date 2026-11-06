@@ -11,6 +11,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import shlex
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 MARKER = "scrum-dev.json"
@@ -187,7 +188,64 @@ def _integrated(entry: dict, sha: str, tip: str) -> None:
         raise ValueError("el commit entregado todavía no está integrado en main")
 
 
-def close(root: str, request_id: str, integrated_sha: str, db_path: str) -> dict:
+def close_command(root: str, request_id: str, sha: str = "<SHA-main>") -> str:
+    return shlex.join(["python3", str(Path(__file__).resolve()), "cerrar", str(Path(root).resolve()),
+                       "--pedido", request_id, "--integrado", sha, "--sincronizar"])
+
+
+def register_preview(root: str, request_id: str, pr: int, pid: int | None, port: int | None,
+                     directory: str | None, sha: str | None) -> dict:
+    import inbox
+    import preview_process
+    if pr < 1:
+        raise ValueError("PR inválido")
+    with inbox.launch_lock(root):
+        entry = _entry(root, request_id)
+        path = receipt(root, request_id)
+        data = json.loads(path.read_text())
+        if data.get("status") != "delivered":
+            raise ValueError("solo una entrega pendiente admite registrar preview")
+        preview = None
+        if pid is not None:
+            if directory is None or port is None or sha is None:
+                raise ValueError("preview requiere PID, puerto, directorio y SHA revisado")
+            observed = preview_process.identity(pid)
+            cwd = str(Path(directory).resolve())
+            commit = _commit(entry["project"], sha)
+            if not observed or observed["cwd"] != cwd or preview_process.listeners(port) != {pid}:
+                raise ValueError("PID, cwd y listener no corresponden al preview")
+            common = lambda repo: str((Path(repo) / git(repo, "rev-parse", "--git-common-dir")).resolve())
+            if common(cwd) != common(entry["project"]) or git(cwd, "rev-parse", "HEAD") != commit:
+                raise ValueError("preview no corresponde al repositorio y SHA revisado")
+            if cwd != entry["directory"]:
+                if not _gitdir(cwd) or metadata(cwd) or git(cwd, "rev-parse", "--abbrev-ref", "HEAD") != "HEAD":
+                    raise ValueError("preview adicional debe ser un worktree detached dedicado")
+            _clean(cwd)
+            preview = dict(observed, port=port, sha=commit)
+        if "preview" in data and data["preview"] != preview:
+            raise ValueError("ya existe un registro de preview distinto; no se sobrescribe")
+        data.update(pr=pr, preview=preview)
+        inbox.write_request(str(path), data)
+        return data
+
+
+def sync_main(project: str, expected: str) -> None:
+    """Actualiza solo main, nunca el checkout/index compartidos de otra rama."""
+    git(project, "fetch", "origin", "main")
+    remote = git(project, "rev-parse", "refs/remotes/origin/main")
+    if remote != expected:
+        raise ValueError("origin/main cambió; usa el SHA remoto actual y repite el cierre")
+    old = git(project, "rev-parse", "refs/heads/main")
+    if old == remote:
+        return
+    git(project, "merge-base", "--is-ancestor", old, remote)
+    rows = git(project, "worktree", "list", "--porcelain").splitlines()
+    if "branch refs/heads/main" in rows:
+        raise ValueError("main está en uso por un checkout; sincronízalo allí sin descartar cambios")
+    git(project, "update-ref", "refs/heads/main", remote, old)
+
+
+def close(root: str, request_id: str, integrated_sha: str, db_path: str, synchronize: bool = False) -> dict:
     import inbox
     # No se retiene el candado de admisión mientras compila el gate.
     entry = _entry(root, request_id)
@@ -198,14 +256,21 @@ def close(root: str, request_id: str, integrated_sha: str, db_path: str) -> dict
     if any(data.get(key) != entry.get(key) for key in ("id", "project", "branch", "base", "gestion", "directory", "session")):
         raise ValueError("la entrega no corresponde al lanzamiento")
     if data.get("status") == "closed":
+        if data.get("preview"):
+            import preview_process
+            preview_process.stop(data["preview"])
         return data
     _idle(entry, db_path)
     project = entry["project"]
     sha = _commit(project, integrated_sha)
+    if synchronize:
+        sync_main(project, sha)
     tip = _commit(project, data["commit"])
     if git(project, "rev-parse", "refs/heads/main") != sha:
         raise ValueError("--integrado debe ser el HEAD actual de main")
     _integrated(entry, sha, tip)
+    if "preview" not in data:
+        raise ValueError("falta registrar preview o --sin-preview; no se retira la entrega")
     directory = entry["directory"]
     exists = Path(directory).exists()
     if exists:
@@ -234,8 +299,23 @@ def close(root: str, request_id: str, integrated_sha: str, db_path: str) -> dict
             if git(directory, "rev-parse", "HEAD") != tip:
                 raise ValueError("el worktree avanzó durante el gate")
             _clean(directory)
+        preview = data["preview"]
+        extra = preview and preview["cwd"] != directory
+        if extra and Path(preview["cwd"]).exists():
+            cwd = preview["cwd"]
+            if (not _gitdir(cwd) or metadata(cwd)
+                    or git(cwd, "rev-parse", "--abbrev-ref", "HEAD") != "HEAD"
+                    or git(cwd, "rev-parse", "HEAD") != preview["sha"]):
+                raise ValueError("el worktree de preview cambió; se conserva")
+            _integrated(entry, sha, preview["sha"])
+            _clean(cwd)
+        if preview:
+            import preview_process
+            preview_process.stop(preview)
         data.update(verified=sha, status="verified")
         inbox.write_request(str(path), data)
+        if extra and Path(preview["cwd"]).exists():
+            git(project, "worktree", "remove", preview["cwd"])
         if Path(directory).exists():
             git(project, "worktree", "unlock", directory)
             try:
@@ -253,17 +333,34 @@ def close(root: str, request_id: str, integrated_sha: str, db_path: str) -> dict
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="action", required=True)
-    for action in ("entregar", "cerrar"):
+    for action in ("entregar", "cerrar", "registrar-preview"):
         parser = sub.add_parser(action)
-        parser.add_argument("root")
+        parser.add_argument("root", help="directorio inbox, no su carpeta padre")
         parser.add_argument("--pedido", required=True)
-        parser.add_argument("--commit" if action == "entregar" else "--integrado", required=True)
+        if action == "registrar-preview":
+            parser.add_argument("--pr", type=int, required=True)
+            mode = parser.add_mutually_exclusive_group(required=True)
+            mode.add_argument("--pid", type=int)
+            mode.add_argument("--sin-preview", action="store_true")
+            parser.add_argument("--puerto", type=int)
+            parser.add_argument("--directorio")
+            parser.add_argument("--sha")
+        else:
+            parser.add_argument("--commit" if action == "entregar" else "--integrado", required=True)
+            if action == "cerrar":
+                parser.add_argument("--sincronizar", action="store_true")
     args = ap.parse_args(argv)
     try:
-        result = (deliver(args.root, args.pedido, args.commit, os.getcwd()) if args.action == "entregar"
-                  else close(args.root, args.pedido, args.integrado, os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))))
-    except (ValueError, OSError) as exc:
-        ap.exit(2, f"error: {exc}\n")
+        if args.action == "entregar":
+            result = deliver(args.root, args.pedido, args.commit, os.getcwd())
+        elif args.action == "registrar-preview":
+            result = register_preview(args.root, args.pedido, args.pr, args.pid, args.puerto, args.directorio, args.sha)
+        else:
+            result = close(args.root, args.pedido, args.integrado,
+                os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db")), args.sincronizar)
+    except (ValueError, OSError, KeyError) as exc:
+        ap.exit(2, f"error: {exc}\nNo retires manualmente la entrega. "
+                   f"Usa el inbox registrado y conserva el error completo (sin ocultarlo con tail).\n")
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

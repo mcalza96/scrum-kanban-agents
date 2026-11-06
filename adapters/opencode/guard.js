@@ -259,10 +259,12 @@ function managedCloseBlocked(words, target) {
   if (!data) return null;
   const helper = fileURLToPath(new URL("../../scripts/dev_worktree.py", import.meta.url));
   let sha = "<SHA-main>";
-  try { sha = execFileSync("git", ["-C", data.project, "rev-parse", "refs/heads/main"],
-    { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}
+  for (const ref of ["refs/remotes/origin/main", "refs/heads/main"]) {
+    try { sha = execFileSync("git", ["-C", data.project, "rev-parse", "--verify", ref],
+      { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim(); break; } catch {}
+  }
   return { blocked: true, regla: "git-cierre-administrado", detalle: data.id,
-    command: `python3 ${shellQuote(helper)} cerrar ${shellQuote(join(data.gestion, "inbox"))} --pedido ${shellQuote(data.id)} --integrado ${sha}` };
+    command: `python3 ${shellQuote(helper)} cerrar ${shellQuote(join(data.gestion, "inbox"))} --pedido ${shellQuote(data.id)} --integrado ${sha} --sincronizar` };
 }
 
 // Devuelve { blocked, regla, detalle }. cwd es el directorio de la sesión; `cd X` y `git -C X`

@@ -288,7 +288,8 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner, db_p
                         f"python3 {helper} entregar {root} --pedido {entry['id']} --commit <SHA>\n"
                         "No hagas push, PR ni merge. El PM verifica, sube la rama y abre el PR; "
                         "el PO presenta localhost con los cambios al dueño y autoriza/ejecuta el merge. "
-                        "Después apaga el preview y retira worktree/rama con gate integrado verde; "
+                        "El PO registra PR/preview mediante dev_worktree.py registrar-preview (references/pr-preview.md). "
+                        "Después ejecuta el cierre único que apaga el preview y retira worktree/rama con gate integrado verde; "
                         "el dev conserva su worktree hasta ese cierre y no crea previews duplicados. "
                         "Los stashes se comparten entre worktrees: no los uses.\n")
         opencode = opencode_bin or shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")

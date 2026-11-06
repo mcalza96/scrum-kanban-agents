@@ -137,9 +137,9 @@ def _pending_closures(repo: str, root: Path, name: str):
             pr = _merged_pull(repo, name, data)
             if pr is None:
                 continue
-            main = subprocess.run(['git', '-C', repo, 'rev-parse', 'refs/heads/main'],
+            main = subprocess.run(['git', '-C', repo, 'rev-parse', '--verify', 'refs/remotes/origin/main'],
                                   capture_output=True, text=True)
-            sha = main.stdout.strip() if main.returncode == 0 else '<SHA-actual-main>'
+            sha = main.stdout.strip() if main.returncode == 0 else '<SHA-origin-main-actual>'
             command = shlex.join(['python3', str(Path(__file__).resolve().with_name('dev_worktree.py')),
                                  'cerrar', str(root), '--pedido', request,
                                  '--integrado', sha, '--sincronizar'])
@@ -149,7 +149,7 @@ def _pending_closures(repo: str, root: Path, name: str):
                     f"por el flujo único: {command}. Si falla, conserva la entrega y registra el bloqueo; "
                     f"no uses unlock/remove/branch manuales. {token}")
             yield token, text, None
-        except (OSError, ValueError, TypeError, AttributeError, ImportError) as exc:
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, ImportError) as exc:
             yield None, None, f'Cierre {path.name}: no verificable; se conserva: {exc}'
 
 

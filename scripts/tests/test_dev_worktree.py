@@ -63,7 +63,9 @@ class DevWorktreeTest(unittest.TestCase):
         return self.git('rev-parse','HEAD',repo=entry['directory'])
 
     def deliver(self, entry, sha):
-        return dw.deliver(str(self.root),entry['id'],sha,entry['directory'])
+        data = dw.deliver(str(self.root),entry['id'],sha,entry['directory'])
+        dw.register_preview(str(self.root),entry['id'],1,None,None,None,None)
+        return json.loads(dw.receipt(str(self.root),entry['id']).read_text())
 
     def close(self, entry):
         return dw.close(str(self.root),entry['id'],self.git('rev-parse','main'),str(self.database))
@@ -166,3 +168,93 @@ class DevWorktreeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'main cambió'):self.close(e)
         self.assertTrue(Path(e['directory']).exists())
         self.assertIn('locked',self.git('worktree','list','--porcelain'))
+
+    def test_sin_registro_de_preview_no_cierra(self):
+        e=self.launch();sha=self.commit(e)
+        dw.deliver(str(self.root),e['id'],sha,e['directory']);self.integrate(e)
+        with self.assertRaisesRegex(ValueError,'falta registrar preview'):self.close(e)
+        self.assertTrue(Path(e['directory']).exists())
+
+    def test_preview_que_no_termina_conserva_entrega(self):
+        e=self.launch();sha=self.commit(e);self.deliver(e,sha);self.integrate(e)
+        path=dw.receipt(str(self.root),e['id']);data=json.loads(path.read_text())
+        data['preview']={'pid':123,'port':3106,'cwd':e['directory'],'started':'original','sha':sha}
+        path.write_text(json.dumps(data))
+        with patch('preview_process.stop',side_effect=ValueError('preview aún activo')):
+            with self.assertRaisesRegex(ValueError,'preview aún activo'):self.close(e)
+        self.assertTrue(Path(e['directory']).exists())
+        self.assertEqual(json.loads(path.read_text())['status'],'delivered')
+
+    def test_comando_contiene_root_e_id_reales(self):
+        import shlex
+        command=shlex.split(dw.close_command(str(self.root),'T-1','a'*40))
+        self.assertEqual(command[3],str(self.root))
+        self.assertIn('--sincronizar',command)
+
+    def test_sync_no_mueve_main_si_esta_en_uso(self):
+        e=self.launch();sha=self.commit(e)
+        with patch.object(dw,'git',wraps=dw.git) as run:
+            def call(repo,*args):
+                if args==('fetch','origin','main'):return ''
+                if args==('rev-parse','refs/remotes/origin/main'):return sha
+                return dw.git_original(repo,*args)
+            dw.git_original=run._mock_wraps
+            run.side_effect=call
+            with self.assertRaisesRegex(ValueError,'main está en uso'):dw.sync_main(str(self.project),sha)
+        self.assertEqual(self.git('rev-parse','main'),e['base'])
+
+    def test_preview_real_se_apaga_y_retira_worktree_adicional(self):
+        import socket
+        import time
+        import preview_process
+        e=self.launch();sha=self.commit(e);self.deliver(e,sha);self.integrate(e)
+        path=dw.receipt(str(self.root),e['id']);data=json.loads(path.read_text());data.pop('preview');path.write_text(json.dumps(data))
+        extra=self.base/'preview'
+        self.git('worktree','add','--detach',str(extra),sha)
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+        proc=subprocess.Popen(['node','-e',f"require('http').createServer((q,r)=>r.end('ok')).listen({port},'127.0.0.1')"],cwd=extra,
+                              stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        try:
+            deadline=time.monotonic()+5
+            while preview_process.listeners(port)!={proc.pid}:
+                if time.monotonic()>deadline:self.fail('fixture HTTP no escucha')
+                time.sleep(.02)
+            dw.register_preview(str(self.root),e['id'],6,proc.pid,port,str(extra),sha)
+            try:
+                result=self.close(e)
+            except ValueError as exc:
+                if 'preview aún activo' not in str(exc):raise
+                proc.wait(timeout=5)
+                result=self.close(e)
+            proc.wait(timeout=5)
+            self.assertEqual(result['status'],'closed')
+            self.assertEqual(preview_process.listeners(port),set())
+            self.assertFalse(extra.exists())
+            self.assertFalse(Path(e['directory']).exists())
+        finally:
+            if proc.poll() is None:proc.terminate();proc.wait(timeout=5)
+
+    def test_preview_con_commit_unico_no_se_retira(self):
+        e=self.launch();sha=self.commit(e);self.deliver(e,sha);self.integrate(e)
+        extra=self.base/'preview';self.git('worktree','add','--detach',str(extra),sha)
+        (extra/'unico.txt').write_text('no integrado')
+        self.git('add','unico.txt',repo=extra);self.git('commit','-qm','Preview único',repo=extra)
+        unique=self.git('rev-parse','HEAD',repo=extra)
+        path=dw.receipt(str(self.root),e['id']);data=json.loads(path.read_text())
+        data['preview']={'pid':123,'started':'original','cwd':str(extra),'port':3106,'sha':unique}
+        path.write_text(json.dumps(data))
+        with patch('preview_process.stop') as stop:
+            with self.assertRaisesRegex(ValueError,'no está integrado'):self.close(e)
+            stop.assert_not_called()
+        self.assertTrue(extra.exists())
+        self.assertTrue(Path(e['directory']).exists())
+
+    def test_recibo_closed_reverifica_preview(self):
+        e=self.launch();sha=self.commit(e);self.deliver(e,sha);self.integrate(e)
+        self.close(e)
+        path=dw.receipt(str(self.root),e['id']);data=json.loads(path.read_text())
+        data['preview']={'pid':123};path.write_text(json.dumps(data))
+        with patch('preview_process.stop',side_effect=ValueError('preview aún activo')) as stop:
+            with self.assertRaisesRegex(ValueError,'preview aún activo'):self.close(e)
+            stop.assert_called_once_with(data['preview'])

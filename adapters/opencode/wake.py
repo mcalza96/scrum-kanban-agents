@@ -705,7 +705,7 @@ def reap_finished(repo: str, db_path: str = DB) -> list[str]:
                            f"worktree: {entry.get('directory')} | pedido: {entry.get('id')} | session {sid}. "
                            f"Verifica la entrega, sube la rama y abre el PR para el PO. "
                            f"El PO presenta localhost y cambios al dueño; tras su merge apaga el preview "
-                           f"y ejecuta dev_worktree.py cerrar con gate integrado. Registra su evidencia "
+                           f"y ejecuta: {__import__('dev_worktree').close_command(root, entry['id'])}. Registra su evidencia "
                            f"antes de marcar closed (references/pr-preview.md).{gate}")
                 elif _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
                     msg = f"[encargo] {ticket}: session {sid}.{gate}" if touched else None

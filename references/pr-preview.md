@@ -59,3 +59,33 @@ pertinente; no levanta un servidor vacío para simular una revisión.
    El PM entonces marca closed. Si falla algún paso, comunica el pendiente y conserva reported;
    el dueño no tiene que recordar pedir la limpieza. Un PR abandonado o rechazado también exige
    detener su preview, conservando los commits mientras no exista una decisión sobre la entrega.
+
+## Cierre único verificable
+
+El PO registra el preview antes del merge con el helper canónico:
+
+```sh
+python3 <skill>/scripts/dev_worktree.py registrar-preview <gestion/inbox> --pedido <ID> --pr <N> --pid <PID-listener> --puerto <puerto> --directorio <worktree-preview> --sha <SHA-revisado>
+# Solo para cambios sin revisión en navegador:
+python3 <skill>/scripts/dev_worktree.py registrar-preview <gestion/inbox> --pedido <ID> --pr <N> --sin-preview
+```
+
+El registro liga PID, inicio del proceso, cwd, puerto y commit. No acepta sustituir un preview
+registrado. El PO conserva la evidencia del PR/SHA y no registra procesos de otro encargo.
+Después del merge ejecuta el comando completo indicado en el aviso, con **inbox**, no gestión:
+
+```sh
+python3 <skill>/scripts/dev_worktree.py cerrar <gestion/inbox> --pedido <ID> --integrado <SHA-origin/main-actual> --sincronizar
+```
+
+El helper sincroniza main solo por avance directo y sin cambiar el checkout compartido;
+si main está en uso y atrasado, se detiene para sincronización segura en ese checkout.
+Exige el gate integrado verde antes de señalar únicamente el PID registrado con SIGTERM,
+verifica que terminó y que el puerto quedó libre, y recién entonces retira la entrega.
+Si el proceso todavía está terminando, se repite el mismo comando; no escala a SIGKILL.
+Un error conserva el recibo pendiente y el worktree. No ocultar el exit code con `| tail`.
+No usar unlock, remove, branch -D ni update-ref manuales para evitar un rechazo del helper.
+Un preview adicional debe usar un worktree detached dedicado, limpio y del mismo repositorio.
+El helper comprueba nuevamente su SHA y limpieza antes de retirarlo sin force, junto con el
+worktree del encargo. El PM marca closed solo con recibo `status=closed`. Un recibo cuyo worktree ya desapareció
+antes del gate exige revisión explícita: el barrido avisa, nunca fabrica un cierre.
