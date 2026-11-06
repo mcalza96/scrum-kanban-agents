@@ -1,6 +1,8 @@
-# scrum-kanban-agents
+# Agent Relay
 
-**Del encargo al merge, con agentes coordinados y evidencia en cada entrega.**
+**Entrega verificada con agentes.**
+
+Del encargo al merge, con agentes coordinados y evidencia en cada entrega.
 
 Un flujo de desarrollo para equipos de agentes: el dev implementa en su propio worktree;
 el PM verifica el commit y prepara el PR; el PO presenta los cambios al dueño, hace merge
@@ -115,7 +117,8 @@ Si ya tienes una instalación canónica en otra ubicación, reutilízala. Las de
 descubrimiento pueden apuntar a ella mediante enlaces simbólicos. Los proyectos cargan esa
 implementación a través de entradas mínimas; copiar los adaptadores crea versiones que divergen.
 
-El nombre técnico actual para invocar la skill sigue siendo `scrum-kanban-agents`.
+Agent Relay conserva el identificador técnico `scrum-kanban-agents` para invocar la skill
+y mantener compatibles las instalaciones existentes.
 Pide al agente que lea su `SKILL.md` y asuma el rol que le corresponde.
 
 ### Automatización en OpenCode

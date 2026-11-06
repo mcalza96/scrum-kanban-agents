@@ -1,13 +1,13 @@
 ---
 name: scrum-kanban-agents
-description: "Coordina entregas de software entre agentes dev, PM y PO: tickets, worktrees aislados, verificación de commits, PR, revisión humana en localhost y cierre comprobado tras el merge. Úsala para trabajo de desarrollo que requiere coordinación entre sesiones o agentes."
+description: "Agent Relay coordina entregas de software entre agentes dev, PM y PO: tickets, worktrees aislados, verificación de commits, PR, revisión humana en localhost y cierre comprobado tras el merge. Úsala para trabajo de desarrollo que requiere coordinación entre sesiones o agentes."
 license: MIT
 metadata:
   version: 0.10.0
   tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
 
-# Entrega verificada con agentes
+# Agent Relay — entrega verificada con agentes
 
 El dev implementa un encargo en su worktree y entrega un commit con evidencia. El **PM**
 verifica el trabajo, sube la rama y abre el PR. El **PO** presenta los cambios al dueño,
