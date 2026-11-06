@@ -8,8 +8,7 @@
 import { execSync, execFileSync } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fresh } from "../lib/load.js";
-const { raizGestion } = await fresh(new URL("../lib/gestion.js", import.meta.url));
+import { raizGestion } from "../lib/gestion.js";
 
 const SLEEP_UMBRAL = 5; // segundos, configurable por dueño
 const MAX_CMD_LOG = 120;
