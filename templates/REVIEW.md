@@ -24,7 +24,12 @@
 
 ## Closing actions
 
-- Updates to `EPIC.md` or to the board that this close triggers.
+- SHA entregado y verificado por el PM: `<SHA>`; evidencia y resultado: `<ruta/comando>`.
+- Rama subida por el PM y PR a main: `<rama>` / `<enlace>`; HEAD revisado: `<SHA>`.
+- Autorización y merge del PO: `<referencia>`; SHA integrado: `<SHA>`.
+- Gate del SHA integrado desde principal: `<comando>` → `<resultado>`.
+- Cierre `dev_worktree.py cerrar`: `<resultado>`; retiro de worktree y rama confirmado.
+- Solo entonces: actualizaciones de `EPIC.md` o del tablero que este cierre requiere.
 
 ---
 

@@ -31,8 +31,9 @@ human decision at every step.
 |---|---|---|---|
 | Stakeholder | The human | Prioritizes, decides, accepts | Edit the board rows of others |
 | Auditor | One agent session, optional, outside the flow and without a mailbox | Measures the runtime's records when the human asks (or every few hours) and reports to the human with evidence | Receive progress reports, prioritize, assign, launch devs, kill processes, edit code |
-| PM | One agent session (or the human) | Writes tickets, verifies reports, closes or returns | Implement what it reviews |
-| Dev | A fresh agent session for **one** task (one-shot) | Implements, runs tests, writes the report and its logbook | Take a second task, decide scope, close its own ticket |
+| PO | Agente responsable del producto, bajo las decisiones del dueño | Revisa alcance, prioridad y dependencias; autoriza y ejecuta el merge del PR a main | Sustituir la verificación técnica del PM |
+| PM | One agent session (or the human) | Escribe tickets, verifica commits y reportes, sube la rama revisada, abre el PR y cierra después del merge y gate | Implementar lo que revisa o hacer merge a main |
+| Dev | A fresh agent session for **one** task (one-shot) | Implementa, prueba, hace commits en su worktree y entrega SHA, reporte y bitácora | Hacer push, abrir PR, hacer merge o cerrar su ticket |
 | Gate | Tests, scripts, hidden evaluation sets | Mechanical verdict | Get changed by the dev it judges |
 
 A PM that edits the artifact under review is reviewing its own work. The human decides; the PM
@@ -57,7 +58,9 @@ pending → in progress → reported → closed
                        returned → in progress (new session)
 ```
 
-- Only the PM sets `closed` or `returned`.
+- Only the PM sets `closed` or `returned`. Para entregas de código, un PR abierto o aprobado
+  sigue en `reported`: se cierra después del merge del PO, del gate integrado y del retiro
+  verificado. El flujo Git y sus evidencias están en `references/file-mode.md`.
 - Each dev edits only its own row on the board.
 - A return goes to a **new dev session**, with a self-contained prompt that lists only what must be
   fixed (`references/prompts.md`).
@@ -138,7 +141,8 @@ pending → in progress → reported → closed
     it stays out of git. Read `references/inbox.md`.
 12. **Un worktree temporal por encargo.** El lanzador crea cada dev desde `main` y registra
     repositorio, base, rama y directorio. El dev entrega un commit con `dev_worktree.py entregar`.
-    El PM integra, resuelve conflictos y cierra con `dev_worktree.py cerrar --integrado <SHA>`:
+    El PM verifica, hace push de la rama y abre el PR; el PO autoriza y ejecuta el merge a main.
+    Después el PM sincroniza main y cierra con `dev_worktree.py cerrar --integrado <SHA>`:
     exige sesión idle, entrega integrada y gate verde del SHA actual antes de eliminar worktree
     y rama. El barrido genérico conserva estas entregas. Los stashes son globales: no se mutan
     tampoco desde un worktree.

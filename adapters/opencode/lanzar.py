@@ -286,7 +286,9 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner, db_p
                         f"sobre {entry['branch']}, base {entry['base']}. El checkout principal es compartido. "
                         "Haz commit de los archivos de tu ticket y registra el SHA real antes de declarar reported:\n"
                         f"python3 {helper} entregar {root} --pedido {entry['id']} --commit <SHA>\n"
-                        "El PM integra y verifica; el dev conserva su worktree hasta el cierre. "
+                        "No hagas push, PR ni merge. El PM verifica, sube la rama y abre el PR; "
+                        "el PO autoriza y ejecuta el merge a main. Después el PM verifica el integrado "
+                        "y cierra; el dev conserva su worktree hasta ese cierre. "
                         "Los stashes se comparten entre worktrees: no los uses.\n")
         opencode = opencode_bin or shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
         cmd = [opencode, "run", "--title", entry["title"], "--format", "json"]

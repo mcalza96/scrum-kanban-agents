@@ -49,7 +49,8 @@ En su lugar:
 3. El plugin del servicio (`adapters/opencode/inbox.js` → `adapters/opencode/lanzar.py`) observa
    `inbox/.lanzar/` y arranca `opencode run --title "dev <ticket>"` con el contenido del prompt.
    Usa el mismo modelo y agente que hoy, en un worktree temporal propio desde main. El PM no queda esperando.
-4. El dev entrega un commit mediante `dev_worktree.py entregar`; el PM integra y cierra con
+4. El dev entrega un commit mediante `dev_worktree.py entregar`; el PM verifica, sube la rama
+   y abre el PR. El PO autoriza y ejecuta el merge; después el PM verifica main y cierra con
    `dev_worktree.py cerrar --integrado <SHA>` (flujo completo en `file-mode.md`).
    El dev sigue siendo one-shot con `TO:` y una sola tarea; al terminar escribe su reporte, pone su
    fila en `reported` y avisa al PM por buzón: `inbox.py send --to PM-x` citando ticket y ruta del reporte.

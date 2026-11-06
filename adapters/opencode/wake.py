@@ -701,7 +701,9 @@ def reap_finished(repo: str, db_path: str = DB) -> list[str]:
                     what = "terminó con commit entregado" if shas else "terminó sin commit entregado"
                     msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
                            f"worktree: {entry.get('directory')} | pedido: {entry.get('id')} | session {sid}. "
-                           f"Integra y verifica antes de cerrar con dev_worktree.py cerrar.{gate}")
+                           f"Verifica la entrega, sube la rama y abre el PR para el PO. "
+                           f"El PO autoriza y ejecuta el merge; después sincroniza main y verifica "
+                           f"antes de cerrar con dev_worktree.py cerrar.{gate}")
                 elif _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
                     msg = f"[encargo] {ticket}: session {sid}.{gate}" if touched else None
                 else:

@@ -47,7 +47,8 @@ overwrite each other, and the board never notices.
 
 ## Cierre de rama
 
-- Al cerrar (PM escribe `closed` con DoD verde): `git branch -d <rama>` — minúscula, solo local, sin remoto — sin OK aparte.
+- Para worktrees administrados: el PM usa `dev_worktree.py cerrar` después del merge del PO y del gate integrado. El helper retira worktree y rama local; no se borran a mano al hacer commit ni al abrir el PR.
+- Para ramas no administradas, solo tras integración y DoD verde: `git branch -d <rama>`, local y sin borrar la rama remota.
 - `conserva/*` creado después de `v1` queda como deuda con expiración (fecha en la fila o en el nombre).
 
 ## Ticket parts and STOP points
@@ -105,7 +106,33 @@ python3 <skill>/scripts/dev_worktree.py entregar <buzón> --pedido <id> --commit
 ```
 
 Esto registra `.lanzar/<id>.delivery`; un reporte sin commit no acredita una entrega de código.
-El PM integra la rama mediante el flujo habitual, resuelve conflictos y ejecuta:
+### Dev: commit y entrega
+
+El dev entrega el SHA y reporte en su worktree; no hace push, abre PR ni integra a main.
+El recibo `.delivery` no cambia el estado a closed.
+
+### PM: verificación, push de rama y PR
+
+El PM comprueba el recibo, el diff, las pruebas y los candados del SHA entregado. Si hay errores
+o conflictos que requieren cambiar código, devuelve el trabajo a una nueva sesión de dev;
+no implementa lo que después revisará. Una vez verificado, hace push únicamente de la rama del
+encargo al remoto acordado, sin force-push ni push a main, y abre el PR contra main.
+El PR explica problema, comportamiento resultante, alcance, dependencias y evidencia de pruebas;
+registra ticket, pedido, SHA revisado y reporte. El PM avisa al PO por buzón con el enlace del PR.
+Un commit nuevo invalida la verificación anterior: el PM revisa el nuevo SHA antes de entregarlo al PO.
+
+### PO: autorización y merge
+
+El PO revisa alcance, prioridad, dependencias y verificaciones vigentes del HEAD del PR.
+Autoriza y ejecuta el merge a main por el flujo del repositorio. Un PR pendiente de decisión
+sigue en reported; no se borra su worktree. El PO comunica al PM enlace del PR y SHA integrado.
+La estrategia de merge y las reglas del repositorio conservan su configuración existente.
+
+### PM: verificación integrada y cierre
+
+Después del merge del PO, el PM sincroniza main con el remoto sin alterar cambios pendientes
+ajenos. Si el checkout compartido impide avanzar de forma segura, conserva la entrega y comunica
+el bloqueo. Ejecuta desde el principal:
 
 ```sh
 python3 <skill>/scripts/dev_worktree.py cerrar <buzón> --pedido <id> --integrado <SHA-actual-main>
@@ -114,7 +141,8 @@ python3 <skill>/scripts/dev_worktree.py cerrar <buzón> --pedido <id> --integrad
 El cierre exige la sesión observada idle, árbol limpio, entrega integrada (merge o cherry-pick
  equivalente) y `bash <principal>/scripts/verificar-commit.sh <SHA>` verde desde el principal.
 Recomprueba que main y la entrega no avanzaron antes de retirar el worktree sin `--force` y borrar
-la rama. Conserva el recibo, el SHA y la trazabilidad. Un fallo conserva el trabajo para revisión;
+la rama. El PM registra enlace del PR, SHA revisado, autorización del PO, SHA integrado y
+resultado del gate en el review antes de marcar closed. Conserva el recibo, el SHA y la trazabilidad. Un fallo conserva el trabajo para revisión;
 no hay merge ni limpieza automáticos. Stash mutante sigue bloqueado porque sus refs son globales.
 
 Pedidos anteriores sin proyecto quedan bloqueados y avisados, sin paralizar pedidos válidos.
