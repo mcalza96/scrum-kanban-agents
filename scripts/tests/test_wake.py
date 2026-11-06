@@ -82,6 +82,30 @@ class WakeTest(unittest.TestCase):
         self.wake()
         self.assertEqual([s for s, _ in self.sent], ["ses_ui"])
 
+    def test_identidad_inicial_no_confunde_prefijos_ni_instrucciones(self):
+        cases = [("Eres el PO.", "PO"), ("Eres PO-test.", None),
+                 ("Eres PO.otro.", None), ("Eres un experto. Ejemplo TO: PM-ui", None),
+                 ("Eres PM-ui-2. Lee tu buzón.", "PM-ui-2"),
+                 ("TO: PM-ui. Lee tu buzón.", "PM-ui")]
+        for i, (text, expected) in enumerate(cases):
+            self.db.execute("insert into session_message values (?,'user',1,?)",
+                            (str(i), json.dumps({"text": text})))
+            with self.subTest(text=text):
+                self.assertEqual(wake.addressee(self.db, str(i)), expected)
+
+    def test_relevo_eres_no_se_apropia_de_otro_buzon(self):
+        self.session("ses_ui", f"inbox.py read {self.root} PM-ui", 1, to="PM-ui")
+        self.session("ses_aud", f"inbox.py read {self.root} PM-ui", 2)
+        self.db.execute("insert into session_message values ('ses_aud','user',1.5,?)",
+                        (json.dumps({"text": '\"Eres PM-auditoría. Ejecuta: inbox.py read inbox PM-auditoria\"'}),))
+        self.db.commit()
+        self.assertEqual(wake.addressee(self.db, "ses_aud"), "PM-auditoria")
+        self.assertEqual(wake.find_session(self.db, self.root, "PM-ui"), "ses_ui")
+        self.db.execute("insert into session_message values ('ses_aud','assistant',3,?)",
+                        (json.dumps({"content": [{"type":"tool", "state":{"input":{"command":f"inbox.py read {self.root} PM-auditoria"}}}]}),))
+        self.db.commit()
+        self.assertEqual(wake.find_session(self.db, self.root, "PM-auditoria"), "ses_aud")
+
     def test_a_session_that_signs_as_another_pm_does_not_take_it(self):
         # 2026-11-03: the owner opened the PO by hand («toma el papel de PO…», no TO:). It read
         # PM-ui's mailbox to check on it, was the newest reader, and got PM-ui's wakes from 14:55

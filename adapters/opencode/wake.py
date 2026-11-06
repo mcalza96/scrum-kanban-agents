@@ -196,10 +196,13 @@ def mailbox_root(arg: str) -> str:
 
 
 def addressee(db: sqlite3.Connection, sid: str) -> str | None:
-    """The PM a session was started for: the `TO: <pm>` that opens its first user prompt."""
+    """Identidad explícita al abrir el primer prompt: TO: <pm> o Eres PM-<lane>."""
     row = db.execute("select data from session_message where session_id = ? and type = 'user'"
                      " order by time_created limit 1", (sid,)).fetchone()
-    m = re.match(r"[\s\"'`]*TO:\s*([\w.-]+)", message_text(row))
+    text = message_text(row)
+    token = r"[\w-]+(?:\.[\w-]+)*"
+    m = (re.match(r"[\s\"'`]*TO:\s*(" + token + r")", text)
+         or re.match(r"[\s\"'`]*[Ee]res\s+(?:(?:el|la)\s+)?((?:PM|Director)-" + token + r"|PO)(?![\w-]|\.[\w-])", text))
     return plain(m.group(1)) if m else None
 
 

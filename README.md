@@ -33,7 +33,7 @@ codebase, and it records what was needed to trust their work.
 - **PMs talk to each other.** One mailbox per PM (`scripts/inbox.py`). A hook (an opencode plugin
   in `adapters/opencode/inbox.js`, or a Claude Code hook) puts unread messages in front of every PM
   turn, the PM acks after acting, and `inbox.py check` flags what was left unread. In opencode a
-  message also wakes an idle PM (`adapters/opencode/wake.py`, capped at 40 wakes per PM per hour).
+  message also wakes an idle PM (`adapters/opencode/wake.py`, without a wake cap; busy sessions batch unread messages).
 - **The PM never waits on its dev.** The PM queues a dev with `inbox.py lanzar`, and the opencode
   plugin starts it in the background (up to ten devs per machine, no per-PM cap). When the dev finishes,
   the PM gets a message, whether or not the dev wrote one.
@@ -75,7 +75,7 @@ to skip. `<skill>` is where you cloned it; `inbox/` stays out of git (it is live
 |---|---|
 | Claude Code | In `.claude/settings.json`: `python3 <skill>/scripts/focus.py hook "$CLAUDE_PROJECT_DIR/focus"` on `SessionStart`, and `python3 <skill>/scripts/inbox.py hook "$CLAUDE_PROJECT_DIR/inbox"` on `UserPromptSubmit` |
 | git (any runtime) | `git config core.hooksPath <skill>/scripts/hooks` and `git config prepush.cmd '<your build>'` (default `npx tsc --noEmit -p .`). The gate calls `scripts/trinquete.py` (references/gates.md) |
-| opencode | Copy `adapters/opencode/inbox.js` and `guard.js` to `<project>/.opencode/plugin/`, and `adapters/lib/gestion.js` to `<project>/.opencode/lib/` (helpers stay out of `plugin/`: opencode loads every file there as a plugin). A timer (launchd, cron) runs `adapters/opencode/wake.py --sweep <project>` every 5 minutes: it finds the mailbox through `.scrum.toml`, so never give it the mailbox path. `wake.py --activos <project>` lists the sessions with real activity in the last 10 minutes After every `opencode upgrade`, run `scripts/opencode_inbox_smoke.sh` |
+| opencode | Run `python3 <skill>/scripts/install.py <project>`; it creates minimal entries loading the canonical skill from `~/.agents/skills/scrum-kanban-agents` (or `SCRUM_SKILL`). Run with `--check` to detect replicas; do not copy adapters. A timer (launchd, cron) runs `adapters/opencode/wake.py --sweep <project>` every 5 minutes: it finds the mailbox through `.scrum.toml`, so never give it the mailbox path. `wake.py --activos <project>` lists the sessions with real activity in the last 10 minutes After every `opencode upgrade`, run `scripts/opencode_inbox_smoke.sh` |
 | Codex | `adapters/codex.md` |
 | Anything else | The PM's system prompt runs `inbox.py pending inbox/` at the start of every turn |
 

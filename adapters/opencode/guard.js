@@ -5,7 +5,7 @@
 // y git que toca archivos o índice ajenos en el checkout principal (isGitBlocked).
 // Cada rechazo deja línea en inbox/.bloqueos.log (fecha, sesión, comando recortado, regla).
 // Errores del plugin dejan pasar el comando y lo anotan. Umbral configurable.
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { raizGestion } from "../lib/gestion.js";
@@ -164,18 +164,35 @@ const GIT_RULES = [
   [/^stash\b(?!\s+(list|show)\b)/, "git-stash"],
   [/^(checkout|switch|restore)\b/, "git-checkout"],
   [/^reset\b.*--(hard|merge|keep)\b/, "git-reset-hard"],
-  [/^clean\b.*\s-[a-zA-Z]*f/, "git-clean"],
+  [/^clean\b.*(?:\s-[a-zA-Z]*f|\s--force\b)/, "git-clean"],
   [/^add\b.*(\s-A\b|\s--all\b|\s\.(\s|$)|\s-u\b|\s--update\b)/, "git-add-todo"],
   [/^commit\b.*(\s-[a-zA-Z]*a[a-zA-Z]*\b|\s--all\b|\s--amend\b)/, "git-commit-todo"],
 ];
 
-function stripQuotes(s) {
-  return s.replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, '""').replace(/'[^'\\]*(?:\\.[^'\\]*)*'/g, "''");
+function shellSegments(cmd) {
+  const segments = [], words = [];
+  let word = "", quote = null, started = false;
+  const flush = () => { if (started) words.push(word); word = ""; started = false; };
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    if (c === "\\" && quote !== "'") {
+      word += cmd[++i] || ""; started = true;
+    } else if (quote) {
+      if (c === quote) quote = null;
+      else word += c;
+    } else if (c === '"' || c === "'") {
+      quote = c; started = true;
+    } else if (/[;&|\n]/.test(c)) {
+      flush(); segments.push(words.splice(0));
+    } else if (/\s/.test(c)) flush();
+    else { word += c; started = true; }
+  }
+  flush(); segments.push(words);
+  return segments;
 }
 
 function gitPaths(dir) {
-  return execSync(
-    `git -C ${JSON.stringify(dir)} rev-parse --path-format=absolute --show-toplevel --git-common-dir`,
+  return execFileSync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"],
     { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim().split("\n");
 }
 
@@ -202,20 +219,31 @@ export function sharedCheckout(projectDir) {
 // mueven el destino. isShared dice si un directorio es el árbol compartido (sharedCheckout).
 export function isGitBlocked(cmd, cwd, isShared) {
   let dir = cwd;
-  for (const seg of stripQuotes(cmd.split("<<")[0]).split(/&&|\|\||[;\n|&]/)) {
-    const s = seg.trim();
-    const cd = s.match(/^cd\s+(\S+)/);
-    if (cd) {
-      const t = cd[1].replace(/^~(?=\/|$)/, process.env.HOME || "~");
-      dir = t.startsWith("/") ? t : join(dir, t);
+  for (const words of shellSegments(cmd.split("<<")[0])) {
+    if (words[0] === "cd" && words[1]) {
+      const target = words[1].replace(/^~(?=\/|$)/, process.env.HOME || "~");
+      dir = target.startsWith("/") ? target : join(dir, target);
       continue;
     }
-    const g = s.match(/^(?:\S+=\S+\s+)*git((?:\s+-[Cc]\s+\S+)*)\s+(.*)$/);
-    if (!g) continue;
-    const c = g[1].match(/-C\s+(\S+)/);
-    const target = c ? (c[1].startsWith("/") ? c[1] : join(dir, c[1])) : dir;
-    const rule = GIT_RULES.find(([re]) => re.test(g[2]));
-    if (rule && isShared(target)) return { blocked: true, regla: rule[1], detalle: `git ${g[2].slice(0, 40)}` };
+    while (/^\w+=/.test(words[0] || "")) words.shift();
+    if (words.shift() !== "git") continue;
+    let target = dir;
+    while (words[0]?.startsWith("-")) {
+      const option = words.shift();
+      if (option === "-C" || option === "-c") {
+        const value = words.shift();
+        if (value === undefined) break;
+        if (option === "-C") target = value.startsWith("/") ? value : join(target, value);
+      } else if (!["--no-pager", "--paginate", "--no-optional-locks"].includes(option)) break;
+    }
+    if (words[0] === "commit") {
+      for (let i = 1; i < words.length; i++) {
+        if (["-m", "--message"].includes(words[i]) && i + 1 < words.length) words[++i] = "";
+      }
+    }
+    const command = words.map(word => /\s/.test(word) ? '""' : word).join(" ");
+    const rule = GIT_RULES.find(([re]) => re.test(command));
+    if (rule && isShared(target)) return { blocked: true, regla: rule[1], detalle: `git ${command.slice(0, 40)}` };
   }
   return { blocked: false };
 }

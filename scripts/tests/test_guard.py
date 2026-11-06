@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import unittest
+import tempfile
 
 GUARD = os.path.join(os.path.dirname(__file__), "../../adapters/opencode/guard.js")
 
@@ -27,6 +28,18 @@ CASES = [
     ("git commit --only a.py --allow-empty -m x", "/main", False, None),
     ("npm test && git -C /main stash", "/wt", True, "git-stash"),
     ("cd /main && git checkout .", "/wt", True, "git-checkout"),
+    ('git -C "/main" stash', "/wt", True, "git-stash"),
+    ("git -C '/main' stash", "/wt", True, "git-stash"),
+    ('cd "/main" && git stash', "/wt", True, "git-stash"),
+    ('git --no-pager stash', "/main", True, "git-stash"),
+    ('git --no-pager -C "/main" stash', "/wt", True, "git-stash"),
+    ('git clean --force', "/main", True, "git-clean"),
+    ('git -C "/main" stash list', "/wt", False, None),
+    ('echo "git -C /main stash"', "/main", False, None),
+    ("git commit --only a.py -m '--amend'", "/main", False, None),
+    ('git commit --only a.py -m "-a"', "/main", False, None),
+    ('git commit --only a.py --message "--amend"', "/main", False, None),
+    ('git commit --only a.py -m "--amend" --amend', "/main", True, "git-commit-todo"),
     # en un worktree propio, todo se permite
     ("git stash && git checkout -b y && git reset --hard", "/wt", False, None),
     ("cd /main && cd ../wt && git stash", "/x", False, None),
@@ -54,6 +67,18 @@ class GuardGitTest(unittest.TestCase):
                 if blocked:
                     self.assertEqual(res["regla"], regla)
 
+
+    def test_ruta_git_es_dato_no_codigo_shell(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = os.path.join(temp, "$(touch marcador_inyeccion)")
+            os.mkdir(project)
+            subprocess.run(["git", "init", "-q", project], check=True)
+            script = (f"const g = await import({json.dumps(os.path.abspath(GUARD))});"
+                      "console.log(g.sharedCheckout(process.argv[1])(process.argv[1]));")
+            result = subprocess.run(["node", "--input-type=module", "-e", script, project],
+                                    cwd=temp, capture_output=True, text=True, check=True)
+            self.assertFalse(os.path.exists(os.path.join(temp, "marcador_inyeccion")))
+            self.assertEqual(result.stdout.strip(), "true")
 
     def test_el_barrido_no_se_apaga(self):
         # 2026-11-05: el plan de pausa de ORDEN-5 hizo bootout del barrido y nadie vio al dueño parado.
