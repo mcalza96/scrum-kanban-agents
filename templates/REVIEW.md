@@ -26,9 +26,13 @@
 
 - SHA entregado y verificado por el PM: `<SHA>`; evidencia y resultado: `<ruta/comando>`.
 - Rama subida por el PM y PR a main: `<rama>` / `<enlace>`; HEAD revisado: `<SHA>`.
+- Preview oficial del PO: `<URL/rutas>`; SHA del PR: `<SHA>`; worktree: `<ruta>`.
+- Servidor: `<comando, PID/job, identidad al inicio, puerto, log, responsable>`; stack de datos verificado sin secretos: `<local/remoto>`.
+- Cambios explicados y pasos de revisión: `<antes/después y rutas>`; OK visual del dueño: `<referencia>`.
 - Autorización y merge del PO: `<referencia>`; SHA integrado: `<SHA>`.
 - Gate del SHA integrado desde principal: `<comando>` → `<resultado>`.
-- Cierre `dev_worktree.py cerrar`: `<resultado>`; retiro de worktree y rama confirmado.
+- Preview apagado por el PO: `<resultado>`; proceso propio detenido y puerto sin listener: `<evidencia>`.
+- Cierre del PO `dev_worktree.py cerrar`: `<resultado>`; worktree y rama local retirados: `<evidencia>`.
 - Solo entonces: actualizaciones de `EPIC.md` o del tablero que este cierre requiere.
 
 ---

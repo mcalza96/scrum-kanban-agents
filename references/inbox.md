@@ -135,5 +135,6 @@ it.
 
 Para nuevos devs aislados, el aviso exige un recibo `.delivery` válido con commit del encargo:
 ni una fila reported ni enviar un mensaje sustituyen esa entrega. El PM recibe el directorio,
-pedido y SHA para integrar y cerrar con `dev_worktree.py cerrar` (ver `file-mode.md`). El barrido
+pedido y SHA para verificar y preparar el PR. El PO presenta localhost, hace merge y retira
+preview/worktree con `dev_worktree.py cerrar` (ver `pr-preview.md`). El barrido
 genérico conserva esos worktrees hasta el cierre verificado.

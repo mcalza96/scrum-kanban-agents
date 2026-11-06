@@ -47,7 +47,7 @@ overwrite each other, and the board never notices.
 
 ## Cierre de rama
 
-- Para worktrees administrados: el PM usa `dev_worktree.py cerrar` después del merge del PO y del gate integrado. El helper retira worktree y rama local; no se borran a mano al hacer commit ni al abrir el PR.
+- Para worktrees administrados: el PO usa `dev_worktree.py cerrar` después de su merge, de apagar la vista previa y del gate integrado. El helper retira worktree y rama local; no se borran a mano al hacer commit ni al abrir el PR.
 - Para ramas no administradas, solo tras integración y DoD verde: `git branch -d <rama>`, local y sin borrar la rama remota.
 - `conserva/*` creado después de `v1` queda como deuda con expiración (fecha en la fila o en el nombre).
 
@@ -121,29 +121,15 @@ El PR explica problema, comportamiento resultante, alcance, dependencias y evide
 registra ticket, pedido, SHA revisado y reporte. El PM avisa al PO por buzón con el enlace del PR.
 Un commit nuevo invalida la verificación anterior: el PM revisa el nuevo SHA antes de entregarlo al PO.
 
-### PO: autorización y merge
+### PO: vista previa, merge y cierre operativo
 
-El PO revisa alcance, prioridad, dependencias y verificaciones vigentes del HEAD del PR.
-Autoriza y ejecuta el merge a main por el flujo del repositorio. Un PR pendiente de decisión
-sigue en reported; no se borra su worktree. El PO comunica al PM enlace del PR y SHA integrado.
-La estrategia de merge y las reglas del repositorio conservan su configuración existente.
-
-### PM: verificación integrada y cierre
-
-Después del merge del PO, el PM sincroniza main con el remoto sin alterar cambios pendientes
-ajenos. Si el checkout compartido impide avanzar de forma segura, conserva la entrega y comunica
-el bloqueo. Ejecuta desde el principal:
-
-```sh
-python3 <skill>/scripts/dev_worktree.py cerrar <buzón> --pedido <id> --integrado <SHA-actual-main>
-```
-
-El cierre exige la sesión observada idle, árbol limpio, entrega integrada (merge o cherry-pick
- equivalente) y `bash <principal>/scripts/verificar-commit.sh <SHA>` verde desde el principal.
-Recomprueba que main y la entrega no avanzaron antes de retirar el worktree sin `--force` y borrar
-la rama. El PM registra enlace del PR, SHA revisado, autorización del PO, SHA integrado y
-resultado del gate en el review antes de marcar closed. Conserva el recibo, el SHA y la trazabilidad. Un fallo conserva el trabajo para revisión;
-no hay merge ni limpieza automáticos. Stash mutante sigue bloqueado porque sus refs son globales.
+El PO presenta al dueño una vista previa localhost del SHA actual del PR, explica qué cambió
+y qué revisar, y obtiene su visto bueno en los cambios visibles antes del merge.
+Después del merge apaga y verifica el servidor, sincroniza main sin tocar cambios ajenos y
+retira el worktree/rama con `dev_worktree.py cerrar --integrado <SHA-actual-main>`.
+El helper exige sesión idle, árbol limpio, entrega integrada y gate del SHA exacto desde el
+principal. Si falla, conserva el trabajo; el PM mantiene reported hasta tener evidencia de cierre.
+El protocolo completo y el registro de preview/cierre están en [pr-preview.md](pr-preview.md).
 
 Pedidos anteriores sin proyecto quedan bloqueados y avisados, sin paralizar pedidos válidos.
 El plugin pasa `--repo` explícito al lanzador para los pedidos anteriores; un fallo de preparación

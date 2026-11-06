@@ -32,8 +32,9 @@ ticket, or a measurement and not code:**
 1. The deliverable is at `<exact path>`. Say that path in the report.
 2. Haz `git commit --only <tus archivos> -m ...` en el worktree asignado. Registra el SHA con el comando
    `dev_worktree.py entregar` indicado por el lanzador y ponlo en el reporte. Conserva el worktree:
-   el PM verifica, sube la rama y abre el PR. El PO autoriza y ejecuta el merge; después el PM
-   verifica el SHA de main y lo retira con `dev_worktree.py cerrar`.
+   el PM verifica, sube la rama y abre el PR. El PO presenta localhost al dueño y hace el merge;
+   después apaga el preview y retira el worktree con `dev_worktree.py cerrar`, sujeto al gate
+   del SHA integrado. El dev no borra su worktree ni inicia un preview adicional por su cuenta.
 3. Write `<path>/reports/<ID>.md`. Paste every output literally, with its `$ command`. End the
    report with `## Logbook`: at most 10 lines, no times. Cover the phases you followed, what you
    repeated and why, where you got stuck, and what would have saved you time.

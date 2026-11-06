@@ -702,8 +702,9 @@ def reap_finished(repo: str, db_path: str = DB) -> list[str]:
                     msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
                            f"worktree: {entry.get('directory')} | pedido: {entry.get('id')} | session {sid}. "
                            f"Verifica la entrega, sube la rama y abre el PR para el PO. "
-                           f"El PO autoriza y ejecuta el merge; después sincroniza main y verifica "
-                           f"antes de cerrar con dev_worktree.py cerrar.{gate}")
+                           f"El PO presenta localhost y cambios al dueño; tras su merge apaga el preview "
+                           f"y ejecuta dev_worktree.py cerrar con gate integrado. Registra su evidencia "
+                           f"antes de marcar closed (references/pr-preview.md).{gate}")
                 elif _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
                     msg = f"[encargo] {ticket}: session {sid}.{gate}" if touched else None
                 else:
