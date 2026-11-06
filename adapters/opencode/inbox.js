@@ -54,7 +54,7 @@ function lanzarKick() {
   if (lanzarTimer) clearTimeout(lanzarTimer);
   lanzarTimer = setTimeout(() => {
     lanzarTimer = null;
-    run(LANZAR, root());
+    run(LANZAR, root(), "--repo", PROJECT);
   }, 800);
 }
 
@@ -87,7 +87,7 @@ return {
     arm();
     setInterval(() => {
       arm();
-      run(LANZAR, root());   // the retry re-evaluates freed caps
+      run(LANZAR, root(), "--repo", PROJECT);   // the retry re-evaluates freed caps
       run(WAKE, "--reap", PROJECT); // the app repo, never the mailbox: its commits carry the candados
     }, 60_000);
     await api.session.hook("context", async (req) => {

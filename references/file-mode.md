@@ -83,11 +83,44 @@ Una entrega existente o una sesión terminada con éxito bloquea otro encargo de
 Después de revisar y devolver el trabajo, el PM usa `inbox.py lanzar ... --retry` con el prompt
 de devolución. El indicador queda registrado; no permite saltar un pedido activo o incierto.
 
-El PM encola devs con `inbox.py lanzar inbox/ --pm PM-x --ticket CAL-n --prompt <ruta>` en
+El PM encola devs con `inbox.py lanzar inbox/ --pm PM-x --ticket CAL-n --prompt <ruta> --repo <aplicación>` en
 `inbox/.lanzar/`; el plugin del servicio los lanza con `opencode run --title "dev <ticket>"`.
 `inbox/.lanzar/log` guarda la trazabilidad (pm, ticket, session, prompt); el título `dev <ticket>`
 permite a `medir-agentes.py` distinguir devs de PMs. Tope: 10 devs en la máquina, sin tope por PM
 (`adapters/opencode/lanzar.py: MAX_GLOBAL`), en cola FIFO. Un ticket no se encola dos veces mientras haya uno en cola, tomado o con dev vivo: `lanzar` dice `en cola, no reintentes, mira inbox/.lanzar/log` (D-285). No toques `inbox/.lanzar/` a mano.
+
+## Worktree temporal y cierre verificado
+
+El proyecto se guarda al encolar (`--repo`, o el Git del directorio actual). Nunca se infiere de
+la carpeta del buzón. Antes de arrancar, el lanzador exige las entradas canónicas commiteadas en
+`main` y crea `.scrum-worktrees/<proyecto>/<pedido>` junto al checkout principal, con rama
+`codex/dev/<pedido>`. Usa el `main` actual al lanzar, sin copiar cambios pendientes ni `.env`.
+Reescribe las rutas absolutas de la app en el prompt; conserva las rutas del buzón y de gestión.
+La metadata privada de Git mantiene el mismo buzón aunque `.scrum.toml` use una ruta relativa.
+
+El dev hace commit de lo suyo y ejecuta, desde su worktree:
+
+```sh
+python3 <skill>/scripts/dev_worktree.py entregar <buzón> --pedido <id> --commit <SHA>
+```
+
+Esto registra `.lanzar/<id>.delivery`; un reporte sin commit no acredita una entrega de código.
+El PM integra la rama mediante el flujo habitual, resuelve conflictos y ejecuta:
+
+```sh
+python3 <skill>/scripts/dev_worktree.py cerrar <buzón> --pedido <id> --integrado <SHA-actual-main>
+```
+
+El cierre exige la sesión observada idle, árbol limpio, entrega integrada (merge o cherry-pick
+ equivalente) y `bash <principal>/scripts/verificar-commit.sh <SHA>` verde desde el principal.
+Recomprueba que main y la entrega no avanzaron antes de retirar el worktree sin `--force` y borrar
+la rama. Conserva el recibo, el SHA y la trazabilidad. Un fallo conserva el trabajo para revisión;
+no hay merge ni limpieza automáticos. Stash mutante sigue bloqueado porque sus refs son globales.
+
+Pedidos anteriores sin proyecto quedan bloqueados y avisados, sin paralizar pedidos válidos.
+El plugin pasa `--repo` explícito al lanzador para los pedidos anteriores; un fallo de preparación
+previo al CLI deja `.json.blocked`, libera cupo y avisa: se corrige y se encola un pedido nuevo.
+Los inicios inciertos después de intentar el CLI conservan su reserva y no se relanzan.
 
 ## Sync
 

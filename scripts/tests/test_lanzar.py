@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(HERE, "../../adapters/opencode"))
 import inbox  # noqa: E402
 import lanzar  # noqa: E402
+import worktree_fixture
 
 
 class LanzarTest(unittest.TestCase):
@@ -21,6 +22,8 @@ class LanzarTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = os.path.join(self.tmp.name, "inbox")
         os.makedirs(self.root, exist_ok=True)
+        self.project = self.tmp.name
+        worktree_fixture.init(self.project)
         self.db = os.path.join(self.tmp.name, "opencode.db")
         # minimal DB for lanzar
         con = sqlite3.connect(self.db)
@@ -35,7 +38,11 @@ class LanzarTest(unittest.TestCase):
         self.calls = []
 
     def tearDown(self):
+        worktree_fixture.cleanup(self.project)
         self.tmp.cleanup()
+
+    def enqueue(self, *args, **kwargs):
+        return inbox.lanzar(*args, **kwargs, project=self.project)
 
     def _prompt(self, text="TO: dev CAL-99\nhello"):
         p = os.path.join(self.tmp.name, "prompt.md")
@@ -65,12 +72,12 @@ class LanzarTest(unittest.TestCase):
         # 2026-11-05: .pausa era una convención que ningún código leía.
         with open(os.path.join(self.root, ".pausa"), "w") as f:
             f.write("PM-calidad ORDEN-5\n")
-        inbox.lanzar(self.root, "PM-ui", "UI-1", self._prompt("TO: dev UI-1\nx"))
+        self.enqueue(self.root, "PM-ui", "UI-1", self._prompt("TO: dev UI-1\nx"))
         runner = self._runner_once("ses_ui")
         self.assertIsNone(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db))
         self.assertEqual(self.calls, [])
         self.assertEqual(len(glob.glob(os.path.join(self.root, ".lanzar", "*.json"))), 1)  # sigue en cola
-        inbox.lanzar(self.root, "PM-calidad", "ORDEN-5", self._prompt("TO: dev ORDEN-5\nx"))
+        self.enqueue(self.root, "PM-calidad", "ORDEN-5", self._prompt("TO: dev ORDEN-5\nx"))
         self.assertEqual(lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode",
                                                runner=self._runner_once("ses_cal"), db_path=self.db), "ses_cal")
         os.remove(os.path.join(self.root, ".pausa"))                                        # se levanta
@@ -79,7 +86,7 @@ class LanzarTest(unittest.TestCase):
 
     def test_un_pedido_produce_exactamente_una_llamada(self):
         pr = self._prompt()
-        qid = inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        qid = self.enqueue(self.root, "PM-calidad", "CAL-99", pr)
         # ensure queue file exists
         qfiles = glob.glob(os.path.join(self.root, ".lanzar", "*.json"))
         self.assertEqual(len(qfiles), 1)
@@ -112,7 +119,7 @@ class LanzarTest(unittest.TestCase):
             pr = os.path.join(self.tmp.name, f"prompt{n}.md")
             with open(pr, "w", encoding="utf-8") as f:
                 f.write(f"TO: dev CAL-{n}\nx")
-            inbox.lanzar(self.root, "PM-calidad", f"CAL-{n}", pr)
+            self.enqueue(self.root, "PM-calidad", f"CAL-{n}", pr)
             time.sleep(0.01)
         self.assertFalse(hasattr(lanzar, "MAX_PER_PM"))
         old = lanzar.MAX_GLOBAL
@@ -143,7 +150,7 @@ class LanzarTest(unittest.TestCase):
     def test_dev_que_termina_sin_mensaje_deja_aviso_al_pm(self):
         # enqueue and launch, then simulate failed session
         pr = self._prompt()
-        inbox.lanzar(self.root, "PM-calidad", "CAL-12", pr)
+        self.enqueue(self.root, "PM-calidad", "CAL-12", pr)
         runner = self._runner_once("ses_fail")
         sid = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db)
         self.assertEqual(sid, "ses_fail")
@@ -170,7 +177,7 @@ class LanzarTest(unittest.TestCase):
     def test_prompt_sin_bloque_de_cierre_se_completa_con_inbox_send(self):
         # M-88 arreglo 1: todo prompt lanzado debe llevar inbox.py send --to <PM>
         pr = self._prompt("TO: dev CAL-99\nsin bloque")
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        self.enqueue(self.root, "PM-calidad", "CAL-99", pr)
         runner = self._runner_once("ses_close")
         sid = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db)
         self.assertEqual(sid, "ses_close")
@@ -187,7 +194,7 @@ class LanzarTest(unittest.TestCase):
 
     def test_prompt_con_bloque_no_se_duplica(self):
         pr = self._prompt(f"hola\npython3 inbox.py send --to PM-calidad --from dev-CAL-99 {self.root} aviso")
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        self.enqueue(self.root, "PM-calidad", "CAL-99", pr)
         runner = self._runner_once("ses_ok")
         sid = lanzar.try_launch_one(self.root, opencode_bin="/fake/opencode", runner=runner, db_path=self.db)
         self.assertEqual(sid, "ses_ok")
@@ -195,7 +202,7 @@ class LanzarTest(unittest.TestCase):
         self.assertEqual(prompt_enviado.count("inbox.py send"), 1)
 
     def test_sin_id_no_reencola_ni_repite_y_conserva_reserva(self):
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+        self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
         runner = mock.Mock(return_value=("", "fallo simulado", 1))
         self.assertIsNone(lanzar.try_launch_one(self.root, runner=runner, db_path=self.db))
         self.assertEqual(len(list(Path(self.root, ".lanzar").glob("*.json"))), 0)
@@ -207,12 +214,12 @@ class LanzarTest(unittest.TestCase):
         self.assertEqual(len(inbox.messages(self.root, "PM-calidad")), 1)
         self.assertNotIn("db_path", inbox.messages(self.root, "PM-calidad")[0].text)
         with self.assertRaisesRegex(ValueError, "en cola"):
-            inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt(), retry=True)
+            self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt(), retry=True)
 
     def test_recupera_solo_la_sesion_del_pedido_actual(self):
         with sqlite3.connect(self.db) as db:
             db.execute("insert into session_v2 values ('ses_vieja', 'dev CAL-99', 1, 2)")
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+        self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
         def runner(cmd, text):
             title = cmd[cmd.index("--title") + 1]
             with sqlite3.connect(self.db) as db:
@@ -224,7 +231,7 @@ class LanzarTest(unittest.TestCase):
     def test_no_adopta_sesion_anterior_y_reconcilia_despues_sin_relanzar(self):
         with sqlite3.connect(self.db) as db:
             db.execute("insert into session_v2 values ('ses_vieja', 'dev CAL-99', 1, 2)")
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+        self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
         runner = mock.Mock(return_value=("", "salida perdida", 0))
         self.assertIsNone(lanzar.try_launch_one(self.root, runner=runner, db_path=self.db))
         claim = next(Path(self.root, ".lanzar").glob("*.claim"))
@@ -238,7 +245,7 @@ class LanzarTest(unittest.TestCase):
 
     def test_dos_lanzadores_respetan_cupo_durante_arranque(self):
         for n in (1, 2):
-            inbox.lanzar(self.root, "PM-calidad", f"CAL-{n}", self._prompt())
+            self.enqueue(self.root, "PM-calidad", f"CAL-{n}", self._prompt())
         entered, release = threading.Event(), threading.Event()
         def first(cmd, text):
             entered.set()
@@ -267,7 +274,7 @@ class LanzarTest(unittest.TestCase):
         binary = Path(self.tmp.name, "fake-opencode")
         binary.write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({{'sessionID':'ses_stream'}}), flush=True)\nwith open({str(fifo)!r}) as f: f.read(1)\n")
         binary.chmod(0o700)
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+        self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
         recorded = threading.Event()
         actual = lanzar._record_session
         results = []
@@ -292,7 +299,7 @@ class LanzarTest(unittest.TestCase):
         self.assertEqual(results, ["ses_stream"])
 
     def test_caida_tras_log_no_duplica_registro(self):
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+        self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
         lanzar.try_launch_one(self.root, runner=lambda *a: ("", "sin ID", 1), db_path=self.db)
         claim = next(Path(self.root, ".lanzar").glob("*.claim"))
         entry = json.loads(claim.read_text())
@@ -306,7 +313,7 @@ class LanzarTest(unittest.TestCase):
         self.assertEqual(len(inbox.launch_records(self.root)), 1)
 
     def test_caida_antes_de_log_retiene_cupo_y_avisa_una_vez(self):
-        qid = inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+        qid = self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
         queued = Path(self.root, ".lanzar", qid + ".json")
         entry = json.loads(queued.read_text())
         entry.update(status="launching", launcher_pid=99999999,
@@ -331,20 +338,20 @@ class LanzarTest(unittest.TestCase):
         Path(self.root, ".lanzar", "log").write_text(json.dumps(record) + "\n")
         with mock.patch.dict(os.environ, {"OPENCODE_DB": self.db}):
             with self.assertRaisesRegex(ValueError, "pendiente de revisión"):
-                inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
+                self.enqueue(self.root, "PM-calidad", "CAL-99", self._prompt())
 
     def test_id_registrado_no_observable_bloquea_incluso_retry(self):
         pr = self._prompt()
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        self.enqueue(self.root, "PM-calidad", "CAL-99", pr)
         lanzar.try_launch_one(self.root, runner=self._runner_once("ses_no_visible"), db_path=self.db)
         with mock.patch.dict(os.environ, {"OPENCODE_DB": self.db}):
             with self.assertRaisesRegex(ValueError, "no observable"):
-                inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr, retry=True)
+                self.enqueue(self.root, "PM-calidad", "CAL-99", pr, retry=True)
         self.assertEqual(len(list(Path(self.root, ".lanzar").glob("*.json"))), 0)
 
     def test_entrega_pendiente_exige_devolucion_explicita(self):
         pr = self._prompt()
-        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        self.enqueue(self.root, "PM-calidad", "CAL-99", pr)
         lanzar.try_launch_one(self.root, runner=self._runner_once("ses_ok"), db_path=self.db)
         with sqlite3.connect(self.db) as db:
             db.execute("insert into session_v2 values ('ses_ok', 'dev CAL-99', 1, 2)")
@@ -352,8 +359,8 @@ class LanzarTest(unittest.TestCase):
                        ("ses_ok", json.dumps({"outcome": "succeeded"})))
         with mock.patch.dict(os.environ, {"OPENCODE_DB": self.db}):
             with self.assertRaisesRegex(ValueError, "pendiente de revisión"):
-                inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
-            retry = inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr, retry=True)
+                self.enqueue(self.root, "PM-calidad", "CAL-99", pr)
+            retry = self.enqueue(self.root, "PM-calidad", "CAL-99", pr, retry=True)
         request = Path(self.root, ".lanzar", retry + ".json")
         self.assertTrue(json.loads(request.read_text())["retry"])
         self.assertNotEqual(retry, inbox.launch_records(self.root)[0]["id"])

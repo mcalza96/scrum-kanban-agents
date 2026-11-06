@@ -40,9 +40,12 @@ CASES = [
     ('git commit --only a.py -m "-a"', "/main", False, None),
     ('git commit --only a.py --message "--amend"', "/main", False, None),
     ('git commit --only a.py -m "--amend" --amend', "/main", True, "git-commit-todo"),
-    # en un worktree propio, todo se permite
-    ("git stash && git checkout -b y && git reset --hard", "/wt", False, None),
-    ("cd /main && cd ../wt && git stash", "/x", False, None),
+    # En un worktree propio el árbol es local, pero los stashes siguen siendo globales.
+    ("git stash && git checkout -b y && git reset --hard", "/wt", True, "git-stash"),
+    ("git checkout -b y && git reset --hard", "/wt", False, None),
+    ("cd /main && cd ../wt && git stash", "/x", True, "git-stash"),
+    ("git stash list", "/wt", False, None),
+    ("git stash show", "/wt", False, None),
     # mencionarlo no es correrlo
     ("echo 'git stash'", "/main", False, None),
     ("cat <<EOF\ngit reset --hard\nEOF", "/main", False, None),

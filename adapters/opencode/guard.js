@@ -243,7 +243,7 @@ export function isGitBlocked(cmd, cwd, isShared) {
     }
     const command = words.map(word => /\s/.test(word) ? '""' : word).join(" ");
     const rule = GIT_RULES.find(([re]) => re.test(command));
-    if (rule && isShared(target)) return { blocked: true, regla: rule[1], detalle: `git ${command.slice(0, 40)}` };
+    if (rule && (rule[1] === "git-stash" || isShared(target))) return { blocked: true, regla: rule[1], detalle: `git ${command.slice(0, 40)}` };
   }
   return { blocked: false };
 }
@@ -256,10 +256,22 @@ return {
   id: "scrum-kanban-agents.guard",
   setup: async (ctx) => {
     const inboxRoot = inboxRootFrom(ctx, project);
+    const projectDir = (ctx.location && ctx.location.directory) || project;
+    const isShared = sharedCheckout(projectDir);
 
     // hook antes de ejecutar herramienta
     await ctx.tool.hook("execute.before", async (event) => {
       try {
+        if (["write", "edit"].includes(event.tool)) {
+          const path = event.input?.path || event.input?.filePath;
+          let parent = path ? dirname(resolve(projectDir, path)) : null;
+          while (parent && !existsSync(parent) && parent !== dirname(parent)) parent = dirname(parent);
+          if (path && !isShared(projectDir) && isShared(parent)) {
+            logBloqueo(inboxRoot, event.sessionID || "unknown", path, "escritura-principal");
+            throw new Error("bloqueado: escritura-principal. Este dev trabaja en su worktree; usa la ruta de su encargo.");
+          }
+          return;
+        }
         if (event.tool !== "shell" && event.tool !== "bash") return;
         const cmd = (event.input && event.input.command) || "";
         if (!cmd) return;
@@ -278,8 +290,7 @@ return {
         }
 
         // --- git en el checkout compartido ---
-        const projectDir = (ctx.location && ctx.location.directory) || project;
-        const gitRes = isGitBlocked(cmd, projectDir, sharedCheckout(projectDir));
+        const gitRes = isGitBlocked(cmd, projectDir, isShared);
         if (gitRes.blocked) {
           logBloqueo(inboxRoot, sessionID, cmd, gitRes.regla, gitRes.detalle);
           throw new Error(
@@ -288,7 +299,7 @@ return {
             `add -A y commit -a/--amend los pisan. Qué hacer: commitea solo lo tuyo con ` +
             `\`git add <archivo nuevo>\` y \`git commit --only <tus archivos> -m ...\`; deja los cambios ajenos ` +
             `como están; para leer otra versión usa \`git show <sha>:<ruta>\`. Si necesitas un árbol limpio, ` +
-            `trabaja en un worktree propio (\`git worktree add\`), donde esto sí se permite.`
+            `trabaja en tu worktree. Los stashes son globales al repositorio y siguen bloqueados allí.`
           );
         }
 

@@ -171,7 +171,7 @@ def _idle(entry: dict, db_path: str) -> None:
             row = db.execute("select time_busy,time_idle from session_v2 where id=?", (entry["session"],)).fetchone()
     except sqlite3.Error as exc:
         raise ValueError(f"runtime no observable: {exc}") from exc
-    if not row or not row[1] or (row[0] or 0) > row[1]:
+    if not row or not row[1] or (row[0] or 0) >= row[1]:
         raise ValueError("la sesión no está observada como terminada/idle")
 
 

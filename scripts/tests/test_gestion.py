@@ -164,7 +164,7 @@ class CompatibilidadSinConfigTest(unittest.TestCase):
             os.makedirs(os.path.dirname(prompt), exist_ok=True)
             with open(prompt, "w", encoding="utf-8") as f:
                 f.write("TO: dev T-1\ntarea")
-            qid = inbox.lanzar(os.path.join(repo, "inbox"), "PM-a", "T-1", prompt)
+            qid = inbox.lanzar(os.path.join(repo, "inbox"), "PM-a", "T-1", prompt, project=repo)
             self.assertTrue(qid.startswith("T-1"))
             # archivar sobre raíz mueve 1 fila (STATUS)
             import datetime
@@ -229,7 +229,7 @@ class CompatibilidadConGestionTest(unittest.TestCase):
             os.makedirs(os.path.dirname(prompt), exist_ok=True)
             with open(prompt, "w", encoding="utf-8") as f:
                 f.write("TO: dev T-99\ntarea")
-            qid = inbox.lanzar(inbox_root, "PM-a", "T-99", prompt)
+            qid = inbox.lanzar(inbox_root, "PM-a", "T-99", prompt, project=repo)
             self.assertTrue(qid.startswith("T-99"))
             # verifica que queue file está en gestion/inbox/.lanzar
             import glob as _g

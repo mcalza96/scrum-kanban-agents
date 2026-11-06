@@ -20,7 +20,7 @@ that run in the container use `<exec prefix>`.
 
 **Forbidden:**
 - touching files outside lane `<LANE>`;
-- commits, unless the epic allows them (see Close, step 2);
+- mutating stashes (shared across worktrees) or writing application code in the principal checkout;
 - overrides;
 - changing the model, the effort, or the config;
 - publishing.
@@ -30,9 +30,9 @@ If a gate seems to need a change: STOP and report.
 **Close, in this order. It is the same for every task, also when the deliverable is a plan, a
 ticket, or a measurement and not code:**
 1. The deliverable is at `<exact path>`. Say that path in the report.
-2. Commits: <the epic's rule. If the epic allows dev commits: `git commit --only <your paths>`, and
-   put the sha in the report. If it forbids them: no commit, and the report lists every path you
-   wrote, so the PM can find and commit them>.
+2. Haz `git commit --only <tus archivos> -m ...` en el worktree asignado. Registra el SHA con el comando
+   `dev_worktree.py entregar` indicado por el lanzador y ponlo en el reporte. Conserva el worktree:
+   el PM integra, verifica el SHA de main y lo retira con `dev_worktree.py cerrar`.
 3. Write `<path>/reports/<ID>.md`. Paste every output literally, with its `$ command`. End the
    report with `## Logbook`: at most 10 lines, no times. Cover the phases you followed, what you
    repeated and why, where you got stuck, and what would have saved you time.

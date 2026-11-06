@@ -32,9 +32,19 @@ function fromFile(repo) {
   return null;
 }
 
+function managedGestion(base) {
+  try {
+    const pointer = readFileSync(join(base, ".git"), "utf8").trim();
+    if (!pointer.startsWith("gitdir: ")) return null;
+    const gitdir = resolve(base, pointer.slice(8));
+    return JSON.parse(readFileSync(join(gitdir, "scrum-dev.json"), "utf8")).gestion || null;
+  } catch { return null; }
+}
+
 export function raizGestion(repo) {
   const base = resolve(repo);
   let raw = fromEnv();
+  if (raw == null) raw = managedGestion(base);
   if (raw == null) raw = fromFile(base);
   if (raw == null || raw === "." || raw === "./" || raw === "") return base;
   if (isAbsolute(raw)) return normalize(raw);

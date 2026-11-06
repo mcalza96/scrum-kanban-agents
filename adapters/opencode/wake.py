@@ -596,6 +596,26 @@ def _resolve_pm(db: sqlite3.Connection, root: str, sid: str, title: str | None,
     return "PO"
 
 
+def _managed_commits(root: str, entry: dict) -> list[str]:
+    try:
+        with open(os.path.join(root, ".lanzar", entry["id"] + ".delivery"), encoding="utf-8") as f:
+            delivery = json.load(f)
+        if any(delivery.get(key) != entry.get(key) for key in
+               ("id", "project", "branch", "base", "gestion", "directory", "session")):
+            return []
+        sha = delivery["commit"]
+        if not re.fullmatch(r"[0-9a-f]{40}", sha) or sha == entry["base"]:
+            return []
+        if subprocess.run(["git", "-C", entry["project"], "merge-base", "--is-ancestor", entry["base"], sha],
+                          capture_output=True).returncode:
+            return []
+        result = subprocess.run(["git", "-C", entry["project"], "rev-list", f"{entry['base']}..{sha}"],
+                                capture_output=True, text=True, check=True)
+        return result.stdout.split()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return []
+
+
 def reap_finished(repo: str, db_path: str = DB) -> list[str]:
     """Le avisa al PM cuando un dev suyo termina bien (succeeded), salvo que el dev ya le haya
     escrito con `inbox.py send --to <PM>`: el PM no depende de que el dev se acuerde.
@@ -670,12 +690,19 @@ def reap_finished(repo: str, db_path: str = DB) -> list[str]:
                     continue
                 pm = _resolve_pm(db2, root, sid, title, parent_id)
                 ticket = _ticket_from_title(title) or _ticket_from_prompt(db2, sid) or "?"
-                shas = _commits_of(db2, sid)
+                entry = next((e for e in inbox.launch_records(root) if e.get("session") == sid), {})
+                isolated = entry.get("isolation") == 1
+                shas = _managed_commits(root, entry) if isolated else _commits_of(db2, sid)
                 touched = candados.removed(repo, shas)
                 gate = (f" Candados tocados: {candados.summary(touched)} ({' '.join(sorted({c for c, _, _ in touched}))});"
                         " justifícalo en el reporte o pide el OK del dueño antes de cerrar (regla 4)."
                         ) if touched else ""
-                if _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
+                if isolated:
+                    what = "terminó con commit entregado" if shas else "terminó sin commit entregado"
+                    msg = (f"[encargo] {ticket} {what}: commits {' '.join(shas) or '—'} | "
+                           f"worktree: {entry.get('directory')} | pedido: {entry.get('id')} | session {sid}. "
+                           f"Integra y verifica antes de cerrar con dev_worktree.py cerrar.{gate}")
+                elif _has_inbox_send(db2, sid, pm):  # the dev told its PM itself
                     msg = f"[encargo] {ticket}: session {sid}.{gate}" if touched else None
                 else:
                     known = ticket if ticket != "?" else None

@@ -66,6 +66,11 @@ def raiz_gestion(repo: str) -> str:
     # si repo apunta a un archivo .scrum.toml dentro, normaliza a su dir?
     # no: repo es siempre el root del proyecto
     raw = _from_env()
+    if raw is None and os.path.isfile(os.path.join(base, ".git")):
+        from dev_worktree import metadata
+        managed = metadata(base)
+        if managed:
+            raw = managed["gestion"]
     if raw is None:
         raw = _from_file(base)
     if raw is None or raw in (".", "./", ""):

@@ -136,7 +136,14 @@ pending → in progress → reported → closed
     it waits for the human). The PM never waits on a dev: when a dev it launched finishes without
     writing to it, the runtime tells the PM within a minute. `inbox/` is live state, not history:
     it stays out of git. Read `references/inbox.md`.
-12. **The shared checkout is nobody's to clean.** Several agents work in the same checkout, tree,
+12. **Un worktree temporal por encargo.** El lanzador crea cada dev desde `main` y registra
+    repositorio, base, rama y directorio. El dev entrega un commit con `dev_worktree.py entregar`.
+    El PM integra, resuelve conflictos y cierra con `dev_worktree.py cerrar --integrado <SHA>`:
+    exige sesión idle, entrega integrada y gate verde del SHA actual antes de eliminar worktree
+    y rama. El barrido genérico conserva estas entregas. Los stashes son globales: no se mutan
+    tampoco desde un worktree.
+
+    **The shared checkout is nobody's to clean.** Several agents work in the same checkout, tree,
     and index. An agent commits only its own files (`git add <new file>`, `git commit --only
     <files>`) and never stashes, checks out, restores, resets, cleans, `add -A`s, `commit -a`s, or
     amends there; it needs a clean tree, it uses its own worktree. The opencode adapter enforces it
@@ -162,7 +169,8 @@ A ticket is not closed without all of these. The PM checks them one by one, not 
    verdict (with the cause of any return) is recorded in the review and the ticket's row.
 9. Whatever the ticket created outside the repo's tracked files is gone: worktrees, dev servers,
    ports, per-ticket build dirs (`.next-<ticket>`). Anything left alive on purpose is named in the
-   report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`). The opencode sweep (`wake.py --sweep`) reaps what is left after a day.
+   report with its owner and when it goes. Throwaway worktrees remove themselves (`trap ... EXIT`). Los worktrees de dev administrados se retiran únicamente mediante el cierre verificado;
+   el barrido genérico conserva sus entregas.
    Why: in the project this skill comes from, 14 worktrees of closed tickets held about 8 GB, and
    nothing said whose they were.
 10. The full gate (build plus suite) passed on the **exact commit that closes the ticket**, in a
@@ -232,6 +240,7 @@ A `completed` status without an artifact is a **delivery failure**, not a succes
 | `scripts/focus.py` | Prints a PM's anchors for a session-start hook, flags what lets an objective drift |
 | `scripts/inbox.py` | Sends, reads, acks and checks the PM mailboxes; `pending` for a per-turn hook |
 | `scripts/opencode_inbox_smoke.sh` | One real model call proving the opencode inbox plugin still works |
+| `scripts/dev_worktree.py` | Entrega por SHA y retiro de worktree/rama tras integración y gate del commit exacto |
 | `scripts/stale_worktrees.py` | Lists worktrees a closed ticket left behind (removable, dirty, ahead, in use); `--reap` removes the stale ones, saving their work as `conserva/wt-<name>`, and stops idle agent postgres |
 | `adapters/opencode/inbox.js` | Plugin: unread mail in every PM turn; wakes idle PMs on new mail; runs the launcher and the dev-finished check every minute |
 | `adapters/opencode/wake.py` | Wakes a PM for its mail as soon as its session stops, with everything unread in one turn; `--reap` tells a PM its dev finished; `--sweep <repo>` (launchd, 5 min) nudges idle PMs, reaps stale worktrees, runs `archivar.py`; `--activos <repo>` lists sessions with real activity, the only evidence that someone is working |

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(HERE, "../../adapters/opencode"))
 import inbox  # noqa: E402
 import lanzar  # noqa: E402
 import wake  # noqa: E402
+import worktree_fixture
 
 
 class Cal29VerificaDoneTest(unittest.TestCase):
@@ -22,6 +23,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         self.root = os.path.join(self.project, "inbox")
         os.makedirs(self.root, exist_ok=True)
         os.makedirs(os.path.join(self.project, "epic-calidad"), exist_ok=True)
+        worktree_fixture.init(self.project)
         self.db_path = os.path.join(self.tmp.name, "opencode.db")
         wake.DB = self.db_path
         lanzar.DB = self.db_path
@@ -47,6 +49,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
             self.db.close()
         except Exception:
             pass
+        worktree_fixture.cleanup(self.project)
         self.tmp.cleanup()
 
     def add_dev(self, sid, ticket="CAL-29", parent="ses_parent", outcome="succeeded", with_send=False, busy=1, idle=None, title=None):
@@ -179,7 +182,7 @@ class Cal29VerificaDoneTest(unittest.TestCase):
         prompt = os.path.join(self.project, "epic-calidad", "prompts", "CAL-95.md")
         with open(prompt, "w", encoding="utf-8") as f:
             f.write("TO: dev CAL-95\ntarea")
-        qid = inbox.lanzar(self.root, "PM-calidad", "CAL-95", prompt)
+        qid = inbox.lanzar(self.root, "PM-calidad", "CAL-95", prompt, project=self.project)
         # verifica que el json en cola tiene expected
         import glob
         qfiles = glob.glob(os.path.join(self.root, ".lanzar", "*.json"))

@@ -35,6 +35,7 @@ import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts"))
 import inbox  # noqa: E402
+import dev_worktree  # noqa: E402
 
 MAX_GLOBAL = 10
 DB = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
@@ -138,7 +139,7 @@ def _record_session_locked(root: str, entry: dict, sid: str) -> None:
     if prior and prior["session"] != sid:
         raise ValueError(f"pedido {entry['id']} asociado a dos sesiones; requiere revisión")
     if not prior:
-        record = {k: entry[k] for k in ("pm", "ticket", "prompt", "from", "id", "expected", "retry", "title") if k in entry}
+        record = {k: entry[k] for k in ("pm", "ticket", "prompt", "from", "id", "expected", "retry", "title", "project", "directory", "branch", "base", "gestion", "isolation") if k in entry}
         record.update(ts=datetime.datetime.now().astimezone().isoformat(), session=sid)
         _append_log(root, record)
     try:
@@ -169,23 +170,37 @@ def _reconcile_claims(root: str, db_path: str) -> None:
                 pass  # No demostrar la muerte del proceso no permite liberar su reserva.
 
 
-def try_launch_one(root: str, opencode_bin: str | None = None, runner=None, db_path: str = DB) -> str | None:
+def try_launch_one(root: str, opencode_bin: str | None = None, runner=None, db_path: str = DB, project: str | None = None) -> str | None:
     """Reserva bajo candado; ejecutar y esperar al CLI nunca retiene ese candado."""
     if not os.path.isdir(root):
         raise FileNotFoundError(f"no existe el buzón {root}")
+    managed = dev_worktree.metadata(project) if project else None
+    if managed:
+        project = managed["project"]
     os.makedirs(qdir_of(root), exist_ok=True)
     with inbox.launch_lock(root):
         _reconcile_claims(root, db_path)
         gcount, _, _ = _active_counts(root, db_path)
         paused = inbox.pause(root)
-        entry = next((e for e in _load_queue(root)
-                      if not paused or e.get("pm") == paused["owner"]), None)
-        if entry is None or gcount >= MAX_GLOBAL:
+        if gcount >= MAX_GLOBAL:
+            return None
+        entry = None
+        for candidate in _load_queue(root):
+            if paused and candidate.get("pm") != paused["owner"]:
+                continue
+            candidate["project"] = candidate.get("project") or project
+            if candidate["project"]:
+                entry = candidate
+                break
+            if candidate.get("status") != "blocked":
+                candidate["status"] = "blocked"
+                inbox.write_request(candidate["_path"], candidate)
+                _notify_launch_error(root, candidate, "pedido anterior sin proyecto: requiere --repo explícito; no se lanza en gestión")
+        if entry is None:
             return None
         claimed = entry["_path"] + ".claim"
         entry.update(status="launching", launcher_pid=os.getpid(),
-                     title=f"dev {entry['ticket']} [{entry['id']}]",
-                     directory=os.path.dirname(os.path.abspath(root)))
+                     title=f"dev {entry['ticket']} [{entry['id']}]")
         inbox.write_request(entry["_path"], entry)
         os.rename(entry["_path"], claimed)
         entry["_path"] = claimed
@@ -247,6 +262,7 @@ def _stream_run(cmd: list[str], text: str, repo: str, on_session) -> tuple[str, 
 
 def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner, db_path: str = DB) -> str | None:
     sid = None
+    cli_attempted = False
 
     def observed(value: str) -> None:
         nonlocal sid
@@ -258,8 +274,23 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner, db_p
     try:
         with open(entry["prompt"], encoding="utf-8") as f:
             prompt_text = _ensure_close_block(f.read(), entry.get("pm", ""), root, entry["ticket"])
+        entry.update(dev_worktree.prepare(root, entry), isolation=1)
+        with inbox.launch_lock(root):
+            inbox.write_request(entry["_path"], entry)
+        # Los prompts anteriores contienen rutas absolutas del checkout compartido.
+        # Reescribir solo ese prefijo completo, nunca el repo hermano de gestión.
+        prompt_text = re.sub("(" + re.escape(root) + r")(?=/|[\s\"'`]|$)|" + re.escape(entry["project"]) + r"(?=/|[\s\"'`]|$)",
+                             lambda match: match.group(0) if match.group(1) else entry["directory"], prompt_text)
+        helper = os.path.abspath(dev_worktree.__file__)
+        prompt_text += (f"\n\nEntrega aislada obligatoria ({entry['id']}): trabaja en {entry['directory']} "
+                        f"sobre {entry['branch']}, base {entry['base']}. El checkout principal es compartido. "
+                        "Haz commit de los archivos de tu ticket y registra el SHA real antes de declarar reported:\n"
+                        f"python3 {helper} entregar {root} --pedido {entry['id']} --commit <SHA>\n"
+                        "El PM integra y verifica; el dev conserva su worktree hasta el cierre. "
+                        "Los stashes se comparten entre worktrees: no los uses.\n")
         opencode = opencode_bin or shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
         cmd = [opencode, "run", "--title", entry["title"], "--format", "json"]
+        cli_attempted = True
         if runner is None:
             out, err, code = _stream_run(cmd, prompt_text, entry["directory"], observed)
         else:
@@ -276,6 +307,13 @@ def _launch_entry(root: str, entry: dict, opencode_bin: str | None, runner, db_p
             raise RuntimeError(err or f"CLI terminó con código {code} sin sessionID")
         return sid
     except Exception as e:
+        if not cli_attempted:
+            with inbox.launch_lock(root):
+                entry.update(status="blocked", error=str(e))
+                inbox.write_request(entry["_path"], entry)
+                os.rename(entry["_path"], entry["_path"].removesuffix(".claim") + ".blocked")
+            _notify_launch_error(root, entry, f"preparación rechazada antes del CLI: {e}. Corrige y encola un pedido nuevo; revisa cualquier worktree conservado.")
+            return None
         if sid is None:
             # No hay prueba de que no haya empezado: conservar reserva y bloquear duplicados.
             with inbox.launch_lock(root):
@@ -348,13 +386,15 @@ def _reap_failed(root: str, db_path: str = DB) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 1:
-        print(__doc__)
-        return 2
-    root = os.path.abspath(argv[0])
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root")
+    parser.add_argument("--repo", dest="project")
+    args = parser.parse_args(argv)
+    root = os.path.abspath(args.root)
     # daemon: watch queue dir and launch
     # Sin sleep en loop: usa watch con polling interval del plugin; aquí solo hace un intento
-    sid = try_launch_one(root)
+    sid = try_launch_one(root, project=args.project)
     if sid:
         print(sid)
     else:

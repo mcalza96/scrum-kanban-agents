@@ -40,6 +40,8 @@ import sys
 import tempfile
 import time
 
+import dev_worktree
+
 CLIENT = re.compile(r"\(\d+\)|\[local\]")
 PG_ROOT = os.path.join(tempfile.gettempdir(), "opencode")  # where opencode agents start postgres
 
@@ -125,6 +127,9 @@ def reap(repo: str, base: str, busy: set[str], older: float, now: float | None =
     now = time.time() if now is None else now
     done = []
     for path in worktrees(repo):
+        if dev_worktree.metadata(path):
+            done.append(f"kept {path}: entrega aislada pendiente de cierre verificado")
+            continue
         try:
             active = last_activity(path) if os.path.isdir(path) else 0.0
             state = classify(repo, path, base, busy).split()[0]

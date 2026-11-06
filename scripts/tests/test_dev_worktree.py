@@ -139,6 +139,17 @@ class DevWorktreeTest(unittest.TestCase):
         self.assertEqual(result,self.close(e))
         self.assertEqual((self.base/'gate.log').read_text().splitlines(),[sha])
 
+    def test_runtime_desconocido_o_timestamps_iguales_no_autorizan_retiro(self):
+        e=self.launch();sha=self.commit(e);self.deliver(e,sha);self.integrate(e)
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute('update session_v2 set time_busy=time_idle')
+        with self.assertRaisesRegex(ValueError,'idle'):self.close(e)
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute('delete from session_v2')
+        with self.assertRaisesRegex(ValueError,'idle'):self.close(e)
+        self.assertTrue(Path(e['directory']).exists())
+        self.assertFalse((self.base/'gate.log').exists())
+
     def test_cherry_pick_integrado_es_valido(self):
         e=self.launch();sha=self.commit(e);self.deliver(e,sha)
         (self.project/'otro.txt').write_text('otra entrega')

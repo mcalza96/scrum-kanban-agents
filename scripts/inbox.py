@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 
@@ -336,7 +337,7 @@ def _review_pending(root: str, entry: dict, db_path: str) -> bool:
     return False
 
 
-def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = None, *, retry: bool = False) -> str:
+def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = None, *, retry: bool = False, project: str | None = None) -> str:
     """Encola un pedido en inbox/.lanzar/. Vuelve al instante con el id del pedido."""
     sender = sender or pm
     if not NAME.match(pm):
@@ -367,6 +368,12 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
         raise ValueError(f"{root} es el proyecto, no el buzón; ¿quisiste decir {hint}?")
     if not os.path.isdir(root):
         raise ValueError(f"no existe el buzón {root}")
+    if project is None:
+        result = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+        project = result.stdout.strip() if result.returncode == 0 else ""
+    project = os.path.realpath(project) if project else ""
+    if not project or not gestion or os.path.realpath(gestion.inbox_root(project)) != os.path.realpath(root):
+        raise ValueError("indica --repo con el repositorio de aplicación cuyo .scrum.toml apunta a este buzón")
     qdir = os.path.join(root, ".lanzar")
     os.makedirs(qdir, exist_ok=True)
     # un ticket no se encola dos veces mientras haya uno en cola,
@@ -424,7 +431,7 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
         uniq = os.path.basename(path)[:-5]
         expected = _infer_expected(ticket, prompt)
         data = {"id": uniq, "pm": pm, "ticket": ticket, "prompt": prompt, "from": sender,
-                "created": now(), "status": "pending", "retry": retry}
+                "created": now(), "status": "pending", "retry": retry, "project": project}
         if expected:
             data["expected"] = expected
         write_request(path, data)
@@ -478,6 +485,7 @@ def main(argv: list[str] | None = None) -> int:
     lz.add_argument("--ticket", required=True, help="id del ticket, ej. CAL-25")
     lz.add_argument("--prompt", required=True, help="ruta al prompt del dev")
     lz.add_argument("--from", dest="sender", default=None, help="quien pide el lanzamiento (por defecto, el PM)")
+    lz.add_argument("--repo", dest="project", help="repositorio de aplicación (por defecto, repo del directorio actual)")
     lz.add_argument("--retry", action="store_true", help="devolución explícita del PM tras revisar una entrega; no salta pedidos activos o inciertos")
     args = ap.parse_args(argv)
 
@@ -485,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd not in ("lanzar", "hook"):  # lanzar has its own check; a hook never fails
             args.root = mailbox_arg(args.root, create=args.cmd == "send")
         if args.cmd == "lanzar":
-            print(lanzar(args.root, args.pm, args.ticket, args.prompt, args.sender, retry=args.retry))
+            print(lanzar(args.root, args.pm, args.ticket, args.prompt, args.sender, retry=args.retry, project=args.project))
             return 0
         elif args.cmd == "send":
             print(send(args.root, args.to, args.sender, args.text))

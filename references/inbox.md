@@ -132,3 +132,8 @@ and did not run `inbox.py send --to <its PM>`, the PM gets one `[encargo]` from 
 to its PM gets no second message. Commits are read from the output of `git commit` only, and
 «wrote to its PM» means a shell call that ran `inbox.py send --to <PM>`, not a file that mentions
 it.
+
+Para nuevos devs aislados, el aviso exige un recibo `.delivery` válido con commit del encargo:
+ni una fila reported ni enviar un mensaje sustituyen esa entrega. El PM recibe el directorio,
+pedido y SHA para integrar y cerrar con `dev_worktree.py cerrar` (ver `file-mode.md`). El barrido
+genérico conserva esos worktrees hasta el cierre verificado.

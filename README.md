@@ -92,6 +92,11 @@ python3 scripts/check_report.py reports/T-07.md --run --cwd repo \
 
 `--run` executes commands that somebody else wrote. Read the listing first, and use `--only` to
 run a subset. The scripts use only the Python standard library (the guard test needs `node`).
+Cada dev usa un worktree temporal propio. Entrega un commit; el PM integra y ejecuta
+`dev_worktree.py cerrar` con el SHA de main. Solo un gate verde retira worktree y rama.
+Los stashes son compartidos entre worktrees y sus mutaciones permanecen bloqueadas.
+Detalles y comandos: [flujo de archivo](references/file-mode.md#worktree-temporal-y-cierre-verificado).
+
 Tests: `python3 -m unittest discover -s scripts/tests`.
 
 ## Layout
