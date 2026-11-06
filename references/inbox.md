@@ -138,3 +138,16 @@ ni una fila reported ni enviar un mensaje sustituyen esa entrega. El PM recibe e
 pedido y SHA para verificar y preparar el PR. El PO presenta localhost, hace merge y retira
 preview/worktree con `dev_worktree.py cerrar` (ver `pr-preview.md`). El barrido
 genérico conserva esos worktrees hasta el cierre verificado.
+
+## PRs que despiertan al PO
+
+El PM sigue enviando el enlace del PR por buzón. Como respaldo, el barrido existente de 5 minutos
+consulta GitHub para los PRs abiertos no draft contra main y entrega al PO un aviso por
+repositorio/PR/HEAD. Una actualización de HEAD genera otro aviso y exige revisar el SHA nuevo.
+El barrido usa el mismo wake y deduplicación de sesión: despierta al PO idle, conserva el aviso
+si está busy y lo vuelve a atender cuando termina, sin interrumpirlo. Si no hay sesión de PO,
+el mensaje permanece en su buzón. Abrir un PR o recibir este aviso no acredita gate verde ni
+autoriza merge. Errores de consulta se registran como fallo de observación, no como cero PRs.
+
+El registro de avisos vive en inbox y persiste aunque se archiven mensajes; no se consulta solo
+la primera página de PRs. No requiere webhook ni otro servicio.

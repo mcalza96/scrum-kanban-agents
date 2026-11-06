@@ -3,7 +3,7 @@
 
     wake.py inbox/ PM-ui         run by the opencode plugin (inbox.js) when a mailbox changes
     wake.py --sweep <repo>       run every few minutes (launchd/cron): nudges idle PMs, and reaps
-                                 the repo's stale worktrees and idle agent postgres
+                                 the repo's stale worktrees and idle agent postgres; reports open PR HEADs to PO
     wake.py --reap <repo>        run every minute by inbox.js: tells each PM that a dev of theirs
                                  finished, unless the dev already wrote to them (reap_finished)
     wake.py --activos <repo> [min]  the sessions with real activity in the last min minutes
@@ -55,6 +55,7 @@ manual `scripts/archivar.py <repo> --tableros`, without concurrent editors.
 from __future__ import annotations
 
 import datetime
+from contextlib import closing
 import fcntl
 import glob
 import json
@@ -72,6 +73,7 @@ import archivar  # noqa: E402
 import candados  # noqa: E402
 import gestion  # noqa: E402
 import inbox  # noqa: E402
+import pr_watch  # noqa: E402
 import stale_worktrees  # noqa: E402
 
 WAIT = 30 * 60   # seconds to wait for a busy session before giving up
@@ -797,6 +799,19 @@ def sweep(repo: str, now: float | None = None, idle: float = IDLE, stale: float 
             done.append(f"{pm} {sid}: nudged after {idle_for / 60:.0f} min idle")
     finally:
         db.close()
+    # GitHub no escribe al buzón por sí solo. El barrido de 5 min recupera el aviso
+    # aunque el PM haya abierto el PR y olvidado enviarlo al PO.
+    for notice in pr_watch.scan(repo):
+        log(root, "prs", notice)
+        done.append(notice)
+    if any(m.unread for m in inbox.messages(root, "PO")):
+        with closing(sqlite3.connect(f"file:{DB}?mode=ro", uri=True)) as check:
+            po = find_session(check, root, "PO")
+            ready = po and not busy(check, po)
+        if ready:
+            # No retener el barrido esperando un turno. run conserva candado y dedup
+            # normales; el watcher y el siguiente barrido atienden lo que llegue busy.
+            done.append("PO " + run(root, "PO", wait=0, send=send))
     return done
 
 

@@ -231,6 +231,33 @@ class WakeTest(unittest.TestCase):
     def nudge(self, minutes):
         return wake.sweep(self.project, now=minutes * 60, send=self.send)
 
+    def test_barrido_despierta_po_por_pr_aunque_no_haya_aviso_del_pm(self):
+        from unittest.mock import patch
+        self.session("ses_po", f"inbox.py read {self.root} PO", 1, to="PO")
+        def scan(repo):
+            if not inbox.messages(self.root, "PO"):
+                inbox.send(self.root, "PO", "github", "[encargo] PR #5 HEAD aaaa listo para revisar")
+                return ["PR #5 avisado"]
+            return []
+        with patch.object(wake.pr_watch, "scan", side_effect=scan):
+            self.nudge(0)
+            self.nudge(5)
+        self.assertEqual([sid for sid, _ in self.sent], ["ses_po"])
+        self.assertIn("M-1", self.sent[0][1])
+
+    def test_po_ocupado_recibe_pr_al_quedar_idle_sin_nuevo_evento_github(self):
+        from unittest.mock import patch
+        self.session("ses_po", f"inbox.py read {self.root} PO", 1, to="PO", busy=True)
+        inbox.send(self.root, "PO", "github", "[encargo] PR #5 pendiente")
+        with patch.object(wake.pr_watch, "scan", return_value=[]):
+            self.nudge(0)
+            self.assertEqual(self.sent, [])
+            self.assertTrue(inbox.messages(self.root, "PO")[0].unread)
+            self.db.execute("update session_v2 set time_busy=1,time_idle=2 where id='ses_po'")
+            self.db.commit()
+            self.nudge(5)
+        self.assertEqual([sid for sid, _ in self.sent], ["ses_po"])
+
     def test_sweep_nudges_an_idle_pm_once_per_idle_stretch(self):
         # 2026-11-02: PMs ended their turn with free dev slots and launchable tickets, and slept
         # until a message arrived.

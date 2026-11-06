@@ -2,7 +2,8 @@
 
 El PM entrega al PO el PR, el SHA revisado, reporte y evidencia técnica. El PO es responsable
 de la vista previa para el dueño y de su cierre después del merge, incluido worktree y rama.
-El PM conserva la revisión técnica y la escritura de closed en el tablero.
+El PM conserva la revisión técnica y la escritura de closed en el tablero. El aviso del PR
+se envía al buzón del PO; el barrido de 5 minutos cubre omisiones y HEAD nuevos (ver `inbox.md`).
 
 ## Antes de pedir revisión al dueño
 

@@ -138,7 +138,8 @@ pending → in progress → reported → closed
     ones left unread. A message to an idle PM wakes it (at most 40 times per PM per hour; past that
     it waits for the human). The PM never waits on a dev: when a dev it launched finishes without
     writing to it, the runtime tells the PM within a minute. `inbox/` is live state, not history:
-    it stays out of git. Read `references/inbox.md`.
+    it stays out of git. El barrido de 5 minutos también detecta PRs abiertos listos contra main
+    y avisa al PO por PR/HEAD aunque el PM haya omitido el aviso. Read `references/inbox.md`.
 12. **Un worktree temporal por encargo.** El lanzador crea cada dev desde `main` y registra
     repositorio, base, rama y directorio. El dev entrega un commit con `dev_worktree.py entregar`.
     El PM verifica, hace push de la rama y abre el PR; el PO autoriza y ejecuta el merge a main.
