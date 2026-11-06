@@ -386,42 +386,26 @@ def lanzar(root: str, pm: str, ticket: str, prompt: str, sender: str | None = No
                     raise
                 except Exception:
                     continue
-        # 2) con dev vivo según log + DB (si existe DB)
-        lp = os.path.join(qdir, "log")
-        if os.path.exists(lp):
-            db_path = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
-            if os.path.exists(db_path):
-                try:
-                    import sqlite3 as _sqlite3
-                    db = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-                    with open(lp, encoding="utf-8") as lf:
-                        for line in lf:
-                            line=line.strip()
-                            if not line:
-                                continue
-                            try:
-                                e=json.loads(line)
-                            except Exception:
-                                continue
-                            if e.get("ticket") != ticket:
-                                continue
-                            sid=e.get("session")
-                            if not sid:
-                                continue
-                            try:
-                                row=db.execute("select time_busy, time_idle from session_v2 where id = ?", (sid,)).fetchone()
-                                if row and (row[0] or 0) > (row[1] or 0):
-                                    raise ValueError(f"en cola, no reintentes, mira inbox/.lanzar/log (ticket {ticket} con dev vivo {sid})")
-                            except ValueError:
-                                raise
-                            except Exception:
-                                continue
-                    db.close()
-                except ValueError:
-                    raise
-                except Exception:
-                    pass
+        # 2) La ausencia de una sesión nueva en el runtime no demuestra que terminó.
         records = launch_records(root)
+        related = [e for e in records if e.get("ticket") == ticket]
+        db_path = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))
+        if related:
+            import sqlite3
+            if not os.path.exists(db_path):
+                if any(e.get("title") for e in related):
+                    raise ValueError(f"{ticket}: runtime no observable; reconcilia el pedido antes de reintentar")
+            else:
+                try:
+                    with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as db:
+                        for e in related:
+                            row = db.execute("select time_busy, time_idle from session_v2 where id = ?", (e.get("session"),)).fetchone()
+                            if row and (row[0] or 0) > (row[1] or 0):
+                                raise ValueError(f"en cola, no reintentes, mira inbox/.lanzar/log (ticket {ticket} con dev vivo {e['session']})")
+                            if row is None and e.get("title"):
+                                raise ValueError(f"{ticket}: sesión {e['session']} no observable; requiere reconciliación")
+                except sqlite3.Error as e:
+                    raise ValueError(f"{ticket}: no se pudo verificar el runtime; no se reintenta: {e}") from e
         previous = [e for e in records if e.get("ticket") == ticket]
         if previous and not retry:
             db_path = os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db"))

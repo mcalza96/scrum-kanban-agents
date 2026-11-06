@@ -333,6 +333,15 @@ class LanzarTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "pendiente de revisión"):
                 inbox.lanzar(self.root, "PM-calidad", "CAL-99", self._prompt())
 
+    def test_id_registrado_no_observable_bloquea_incluso_retry(self):
+        pr = self._prompt()
+        inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
+        lanzar.try_launch_one(self.root, runner=self._runner_once("ses_no_visible"), db_path=self.db)
+        with mock.patch.dict(os.environ, {"OPENCODE_DB": self.db}):
+            with self.assertRaisesRegex(ValueError, "no observable"):
+                inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr, retry=True)
+        self.assertEqual(len(list(Path(self.root, ".lanzar").glob("*.json"))), 0)
+
     def test_entrega_pendiente_exige_devolucion_explicita(self):
         pr = self._prompt()
         inbox.lanzar(self.root, "PM-calidad", "CAL-99", pr)
