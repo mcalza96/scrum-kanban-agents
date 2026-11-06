@@ -1,17 +1,19 @@
 ---
 name: scrum-kanban-agents
-description: "Run a software project with an AI PM and AI dev agents: tickets, a status board, verified evidence, gates that don't overfit, and a plan to finish."
-version: 0.10.0
+description: "Coordina entregas de software entre agentes dev, PM y PO: tickets, worktrees aislados, verificación de commits, PR, revisión humana en localhost y cierre comprobado tras el merge. Úsala para trabajo de desarrollo que requiere coordinación entre sesiones o agentes."
 license: MIT
-tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
+metadata:
+  version: 0.10.0
+  tags: [scrum, kanban, pm, agents, verification, delegation, evaluation]
 ---
 
-# Scrum/Kanban with AI agents as the dev team
+# Entrega verificada con agentes
 
-One agent (or a human) is the **PM**. Other agent sessions are the **devs**. The PM writes tickets,
-the devs implement and report, and the PM verifies the report against reality before closing
-anything. The board is the record of truth: work that is not on the board does not exist, and work
-is not done until the PM has verified it.
+El dev implementa un encargo en su worktree y entrega un commit con evidencia. El **PM**
+verifica el trabajo, sube la rama y abre el PR. El **PO** presenta los cambios al dueño,
+ejecuta el merge y comprueba el cierre de preview, worktree y rama. El PM registra closed
+con esa evidencia. El dueño conserva las decisiones de producto y arquitectura.
+El tablero registra el trabajo y su estado; el cierre exige una entrega verificable.
 
 This skill is tool-agnostic. It works with any coding agent (Claude Code, opencode, Codex, Aider,
 ...) and with any board: a kanban CLI, an issue tracker, or a plain `STATUS.md` file.
