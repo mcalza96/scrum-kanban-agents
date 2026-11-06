@@ -275,3 +275,18 @@ class DevWorktreeTest(unittest.TestCase):
         self.assertEqual(self.git('rev-parse','HEAD'),e['base'])
         self.assertEqual(self.git('diff','--cached'),before)
         self.assertEqual((self.project/'ajeno.txt').read_text(),'edición de otro actor')
+
+    def test_sync_divergencia_explica_bloqueo_sin_reemplazar_historia(self):
+        e=self.launch();sha=self.commit(e)
+        (self.project/'local.txt').write_text('commit local exclusivo')
+        self.git('add','local.txt');self.git('commit','-qm','Historia local')
+        old=self.git('rev-parse','main')
+        self.git('update-ref','refs/remotes/origin/main',sha)
+        original=dw.git
+        def call(repo,*args):
+            if args==('fetch','origin','main'):return ''
+            return original(repo,*args)
+        with patch.object(dw,'git',side_effect=call):
+            with self.assertRaisesRegex(ValueError,'main local diverge'):dw.sync_main(str(self.project),sha)
+        self.assertEqual(self.git('rev-parse','main'),old)
+        self.assertEqual(self.git('rev-parse','HEAD'),old)

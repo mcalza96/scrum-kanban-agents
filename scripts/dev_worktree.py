@@ -242,7 +242,11 @@ def sync_main(project: str, expected: str) -> None:
     old = git(project, "rev-parse", "refs/heads/main")
     if old == remote:
         return
-    git(project, "merge-base", "--is-ancestor", old, remote)
+    ancestry = subprocess.run(["git", "-C", project, "merge-base", "--is-ancestor", old, remote], capture_output=True)
+    if ancestry.returncode == 1:
+        raise ValueError("main local diverge de origin/main; se conserva la historia y se requiere revisión antes de sincronizar")
+    if ancestry.returncode:
+        raise ValueError("no se pudo comprobar el avance directo de main")
     rows = git(project, "worktree", "list", "--porcelain").splitlines()
     if "branch refs/heads/main" in rows:
         raise ValueError("main está en uso por un checkout; sincronízalo allí sin descartar cambios")
