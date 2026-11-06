@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -134,5 +135,102 @@ class PRWatchTest(unittest.TestCase):
         self.assertIn('falló',self.scan()[0])
         self.assertEqual(state.read_text(),'{not-json')
         self.assertEqual(self.messages(),[])
+
+
+class ClosureWatchTest(unittest.TestCase):
+    tearDown = PRWatchTest.tearDown
+    scan = PRWatchTest.scan
+    messages = PRWatchTest.messages
+    def setUp(self):
+        PRWatchTest.setUp(self)
+        self.pages=[]
+        self.closed=pull(state='closed', merged_at='2026-11-06T22:16:28Z',
+                         head={'sha':'b'*40,'ref':'codex/dev/SIM-185--001'})
+        self.delivery={'id':'SIM-185--001','project':str(self.repo),
+                       'branch':'codex/dev/SIM-185--001','status':'delivered','pr':1}
+        self.path=self.root/'.lanzar/SIM-185--001.delivery'
+        self.path.parent.mkdir()
+        self.save()
+
+    def save(self):self.path.write_text(json.dumps(self.delivery))
+
+    def gh(self, repo, *args):
+        if args[0]=='api' and args[-1].startswith('repos/owner/app/pulls/1'):
+            self.calls.append((repo,args));return json.dumps(self.closed)
+        if args[0]=='api' and 'state=closed' in args[-1]:
+            self.calls.append((repo,args));return json.dumps([[self.closed]])
+        return PRWatchTest.gh(self,repo,*args)
+
+    def test_avisa_merge_pendiente_una_vez_con_comando_y_no_borra(self):
+        self.scan()
+        self.assertEqual(len(self.messages()),1)
+        message=self.messages()[0].text
+        self.assertIn('[cierre:owner/app#1@SIM-185--001]',message)
+        self.assertIn(f'cerrar {self.root} --pedido SIM-185--001',message)
+        self.assertIn('--sincronizar',message)
+        self.assertIn('no uses unlock/remove/branch manuales',message)
+        self.assertEqual(self.scan(),[])
+        self.assertEqual(json.loads(self.path.read_text()),self.delivery)
+
+    def test_legacy_busca_solo_rama_y_no_avisa_cerrado_sin_merge(self):
+        del self.delivery['pr'];self.save()
+        self.closed['merged_at']=None
+        self.assertEqual(self.scan(),[])
+        self.assertTrue(any('head=owner%3Acodex%2Fdev%2FSIM-185--001' in args[-1] for _,args in self.calls))
+        self.closed['merged_at']='2026-11-06T22:16:28Z'
+        self.scan();self.assertEqual(len(self.messages()),1)
+
+    def test_recibo_closed_preview_vivo_avisa_sin_matar(self):
+        self.delivery.update(status='closed',preview={'pid':3503,'port':3106})
+        self.save()
+        alive=SimpleNamespace(alive=lambda preview:True)
+        with patch.dict(sys.modules,{'preview_process':alive}):self.scan()
+        self.assertEqual(len(self.messages()),1)
+        self.assertEqual(json.loads(self.path.read_text()),self.delivery)
+
+    def test_recibo_closed_preview_apagado_o_incierto_no_inventa_aviso(self):
+        self.delivery.update(status='closed',preview={'pid':3503,'port':3106})
+        self.save()
+        with patch.dict(sys.modules,{'preview_process':SimpleNamespace(alive=lambda preview:False)}):
+            self.assertEqual(self.scan(),[])
+        with patch.dict(sys.modules,{'preview_process':SimpleNamespace(alive=lambda preview:(_ for _ in ()).throw(ValueError('PID ajeno')))}):
+            self.assertIn('PID ajeno',self.scan()[0])
+        self.assertEqual(self.messages(),[])
+
+    def test_una_entrega_rota_no_impide_aviso_pr_abierto_ni_otra_entrega(self):
+        self.pages=[[pull(2)]]
+        (self.path.parent/'mal.delivery').write_text('{roto')
+        result=self.scan()
+        self.assertEqual(len(self.messages()),2)
+        self.assertTrue(any('no verificable' in line for line in result))
+
+    def test_no_acepta_pr_de_otro_repo_o_rama_y_preserva_recibo(self):
+        for change in [{'base':{'ref':'main','repo':{'full_name':'other/app'}}},
+                       {'head':{'ref':'other-branch'}}, {'number':2}]:
+            original=self.closed.copy();self.closed.update(change)
+            self.assertIn('no verificable',self.scan()[0])
+            self.closed=original
+        self.assertEqual(self.messages(),[])
+        self.assertTrue(self.path.exists())
+
+    def test_fallo_api_por_entrega_no_impide_open_y_reintenta(self):
+        self.pages=[[pull(2)]]
+        original=self.gh
+        def fail(repo,*args):
+            if args[-1].endswith('/pulls/1'):raise ValueError('GH 503 cierre')
+            return original(repo,*args)
+        with patch.object(pr_watch,'_gh',side_effect=fail):
+            result=self.scan()
+        self.assertTrue(any('GH 503 cierre' in line for line in result))
+        self.assertEqual(len(self.messages()),1)
+        self.scan();self.assertEqual(len(self.messages()),2)
+
+    def test_cierre_recupera_envio_tras_fallo_estado(self):
+        with patch.object(inbox,'write_request',side_effect=OSError('fallo posterior')):
+            self.scan()
+        self.assertEqual(len(self.messages()),1)
+        self.assertIn('recuperado',self.scan()[0])
+        self.assertEqual(self.scan(),[])
+        self.assertEqual(len(self.messages()),1)
 
 if __name__=='__main__':unittest.main()

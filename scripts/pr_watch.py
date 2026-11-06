@@ -6,8 +6,9 @@ import fcntl
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import gestion
 import inbox
@@ -78,6 +79,80 @@ def _already_delivered(root: Path, token: str) -> bool:
     return False
 
 
+def _merged_pull(repo: str, name: str, delivery: dict) -> dict | None:
+    """Consulta solo el PR registrado o la rama de la entrega histórica."""
+    number = delivery.get('pr')
+    branch = delivery.get('branch')
+    if not isinstance(branch, str) or not branch.startswith('codex/dev/'):
+        raise ValueError('entrega sin rama administrada')
+    if number is not None:
+        if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+            raise ValueError('número de PR inválido en entrega')
+        candidates = [json.loads(_gh(repo, 'api', f'repos/{name}/pulls/{number}'))]
+    else:
+        head = quote(f"{name.split('/')[0]}:{branch}", safe='')
+        pages = json.loads(_gh(repo, 'api', '--paginate', '--slurp',
+                              f'repos/{name}/pulls?state=closed&head={head}&base=main&per_page=100'))
+        if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+            raise ValueError('respuesta de cierres paginada inválida')
+        candidates = [pr for page in pages for pr in page]
+    merged = []
+    for pr in candidates:
+        if not isinstance(pr, dict):
+            raise ValueError('cierre sin objeto PR')
+        base, head = pr.get('base') or {}, pr.get('head') or {}
+        num = pr.get('number')
+        if (not isinstance(num, int) or isinstance(num, bool) or num < 1
+                or (number is not None and num != number)
+                or base.get('ref') != 'main' or (base.get('repo') or {}).get('full_name') != name
+                or head.get('ref') != branch):
+            raise ValueError('PR de cierre no corresponde a la entrega/repositorio')
+        url = urlsplit(pr.get('html_url') or '')
+        if url.scheme != 'https' or not url.netloc or url.path.rstrip('/') != f'/{name}/pull/{num}':
+            raise ValueError('URL inválida del PR de cierre')
+        if pr.get('state') == 'closed' and pr.get('merged_at'):
+            merged.append(pr)
+    if len(merged) > 1:
+        raise ValueError('más de un PR integrado para la misma entrega; requiere revisión')
+    return merged[0] if merged else None
+
+
+def _pending_closures(repo: str, root: Path, name: str):
+    """Produce avisos o errores por entrega; nunca muta procesos, ramas ni worktrees."""
+    for path in sorted((root/'.lanzar').glob('*.delivery')):
+        try:
+            data = json.loads(path.read_text())
+            request = path.stem
+            if (not isinstance(data, dict) or data.get('id') != request
+                    or Path(data.get('project', '')).resolve() != Path(repo).resolve()
+                    or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', request)):
+                raise ValueError('identidad de entrega inválida')
+            if data.get('status') == 'closed':
+                preview = data.get('preview')
+                if not preview:
+                    continue
+                import preview_process
+                if not preview_process.alive(preview):
+                    continue
+            pr = _merged_pull(repo, name, data)
+            if pr is None:
+                continue
+            main = subprocess.run(['git', '-C', repo, 'rev-parse', 'refs/heads/main'],
+                                  capture_output=True, text=True)
+            sha = main.stdout.strip() if main.returncode == 0 else '<SHA-actual-main>'
+            command = shlex.join(['python3', str(Path(__file__).resolve().with_name('dev_worktree.py')),
+                                 'cerrar', str(root), '--pedido', request,
+                                 '--integrado', sha, '--sincronizar'])
+            token = f"[cierre:{name}#{pr['number']}@{request}]"
+            text = (f"[encargo] Cierre pendiente tras merge: {pr['html_url']}; pedido {request}, "
+                    f"recibo {data.get('status')}. El PO debe verificar y cerrar preview/worktree "
+                    f"por el flujo único: {command}. Si falla, conserva la entrega y registra el bloqueo; "
+                    f"no uses unlock/remove/branch manuales. {token}")
+            yield token, text, None
+        except (OSError, ValueError, TypeError, AttributeError, ImportError) as exc:
+            yield None, None, f'Cierre {path.name}: no verificable; se conserva: {exc}'
+
+
 def scan(repo: str) -> list[str]:
     """No crea buzones. Un fallo se informa y queda reintentable en el próximo barrido."""
     root = Path(gestion.inbox_root(repo))
@@ -116,6 +191,19 @@ def scan(repo: str) -> list[str]:
                     done.append(f"PR #{pr['number']} {sha}: PO avisado ({mid})")
                 else:
                     done.append(f"PR #{pr['number']} {sha}: aviso previo recuperado")
+                seen.add(token)
+                inbox.write_request(str(path), {'notified': sorted(seen)})
+            for token, message, error in _pending_closures(repo, root, name):
+                if error:
+                    done.append(error)
+                    continue
+                if token in seen:
+                    continue
+                if not _already_delivered(root, token):
+                    mid = inbox.send(str(root), 'PO', 'pr-watch', message)
+                    done.append(f'Cierre pendiente: PO avisado ({mid}) {token}')
+                else:
+                    done.append(f'Cierre pendiente: aviso previo recuperado {token}')
                 seen.add(token)
                 inbox.write_request(str(path), {'notified': sorted(seen)})
             return done
