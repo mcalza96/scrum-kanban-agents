@@ -207,8 +207,8 @@ class DevWorktreeTest(unittest.TestCase):
         import socket
         import time
         import preview_process
-        e=self.launch();sha=self.commit(e);self.deliver(e,sha);self.integrate(e)
-        path=dw.receipt(str(self.root),e['id']);data=json.loads(path.read_text());data.pop('preview');path.write_text(json.dumps(data))
+        e=self.launch();sha=self.commit(e)
+        dw.deliver(str(self.root),e['id'],sha,e['directory']);self.integrate(e)
         extra=self.base/'preview'
         self.git('worktree','add','--detach',str(extra),sha)
         with socket.socket() as sock:
