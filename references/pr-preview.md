@@ -70,6 +70,8 @@ python3 <skill>/scripts/dev_worktree.py registrar-preview <gestion/inbox> --pedi
 python3 <skill>/scripts/dev_worktree.py registrar-preview <gestion/inbox> --pedido <ID> --pr <N> --sin-preview
 ```
 
+Si el PM transplantó el commit a otra rama para el PR, el PO añade `--rama-pr <rama-real>`
+al registro; el recibo conserva tanto la rama dev como la rama real del PR.
 El registro liga PID, inicio del proceso, cwd, puerto y commit. No acepta sustituir un preview
 registrado. El PO conserva la evidencia del PR/SHA y no registra procesos de otro encargo.
 Después del merge ejecuta el comando completo indicado en el aviso, con **inbox**, no gestión:

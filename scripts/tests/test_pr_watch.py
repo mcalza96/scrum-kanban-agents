@@ -213,6 +213,12 @@ class ClosureWatchTest(unittest.TestCase):
         self.assertEqual(self.messages(),[])
         self.assertTrue(self.path.exists())
 
+    def test_pr_transplantado_usa_rama_registrada_por_po(self):
+        self.delivery['pr_branch']='sim185-pr';self.save()
+        self.closed['head']['ref']='sim185-pr'
+        self.scan()
+        self.assertEqual(len(self.messages()),1)
+
     def test_fallo_api_por_entrega_no_impide_open_y_reintenta(self):
         self.pages=[[pull(2)]]
         original=self.gh

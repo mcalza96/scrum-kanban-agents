@@ -105,7 +105,7 @@ def _merged_pull(repo: str, name: str, delivery: dict) -> dict | None:
         if (not isinstance(num, int) or isinstance(num, bool) or num < 1
                 or (number is not None and num != number)
                 or base.get('ref') != 'main' or (base.get('repo') or {}).get('full_name') != name
-                or head.get('ref') != branch):
+                or head.get('ref') != delivery.get('pr_branch', branch)):
             raise ValueError('PR de cierre no corresponde a la entrega/repositorio')
         url = urlsplit(pr.get('html_url') or '')
         if url.scheme != 'https' or not url.netloc or url.path.rstrip('/') != f'/{name}/pull/{num}':

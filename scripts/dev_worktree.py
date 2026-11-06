@@ -194,7 +194,7 @@ def close_command(root: str, request_id: str, sha: str = "<SHA-main>") -> str:
 
 
 def register_preview(root: str, request_id: str, pr: int, pid: int | None, port: int | None,
-                     directory: str | None, sha: str | None) -> dict:
+                     directory: str | None, sha: str | None, pr_branch: str | None = None) -> dict:
     import inbox
     import preview_process
     if pr < 1:
@@ -203,6 +203,8 @@ def register_preview(root: str, request_id: str, pr: int, pid: int | None, port:
         entry = _entry(root, request_id)
         path = receipt(root, request_id)
         data = json.loads(path.read_text())
+        branch = pr_branch or entry["branch"]
+        git(entry["project"], "check-ref-format", "--branch", branch)
         if data.get("status") != "delivered":
             raise ValueError("solo una entrega pendiente admite registrar preview")
         preview = None
@@ -224,7 +226,7 @@ def register_preview(root: str, request_id: str, pr: int, pid: int | None, port:
             preview = dict(observed, port=port, sha=commit)
         if "preview" in data and data["preview"] != preview:
             raise ValueError("ya existe un registro de preview distinto; no se sobrescribe")
-        data.update(pr=pr, preview=preview)
+        data.update(pr=pr, pr_branch=branch, preview=preview)
         inbox.write_request(str(path), data)
         return data
 
@@ -345,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.add_argument("--puerto", type=int)
             parser.add_argument("--directorio")
             parser.add_argument("--sha")
+            parser.add_argument("--rama-pr", help="rama real del PR si el PM transplantó el commit")
         else:
             parser.add_argument("--commit" if action == "entregar" else "--integrado", required=True)
             if action == "cerrar":
@@ -354,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "entregar":
             result = deliver(args.root, args.pedido, args.commit, os.getcwd())
         elif args.action == "registrar-preview":
-            result = register_preview(args.root, args.pedido, args.pr, args.pid, args.puerto, args.directorio, args.sha)
+            result = register_preview(args.root, args.pedido, args.pr, args.pid, args.puerto, args.directorio, args.sha, args.rama_pr)
         else:
             result = close(args.root, args.pedido, args.integrado,
                 os.environ.get("OPENCODE_DB", os.path.expanduser("~/.local/share/opencode/opencode.db")), args.sincronizar)
